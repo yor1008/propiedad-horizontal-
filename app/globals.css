@@ -16,3 +16,21 @@ button { cursor:pointer; }
 .mobile-menu { display:none; border:0; background:none; color:var(--ink); }
 @media (max-width:900px) { .module-grid,.stats-grid { grid-template-columns:repeat(2,1fr); }.sidebar { transform:translateX(-100%); transition:transform .2s; }.sidebar.open { transform:translateX(0); }.main-area { margin-left:0; width:100%; }.mobile-menu { display:block; }.topbar { gap:15px; }.topbar > div:first-of-type { flex:1; }.user-chip > div { display:none; }.dashboard-grid { grid-template-columns:1fr; } }
 @media (max-width:600px) { .welcome { padding:24px 18px; align-items:flex-start; }.brand.centered { margin-bottom:55px; }.welcome-copy { margin-bottom:25px; }.welcome h1 { font-size:42px; }.module-grid,.picker-grid,.stats-grid,.fields-grid { grid-template-columns:1fr; }.module-card { min-height:auto; }.picker-content { padding:60px 18px; }.picker-content h1 { font-size:34px; }.picker-head { padding:0 18px; }.content { padding:25px 16px 40px; }.topbar { padding:18px 16px; min-height:78px; }.topbar h1 { font-size:18px; }.top-actions { gap:10px; }.hero-row { align-items:flex-start; flex-direction:column; }.hero-row .primary-btn,.hero-row .secondary-btn { align-self:stretch; justify-content:center; }.fields-grid label:nth-child(3),.fields-grid label:nth-child(4) { grid-column:span 1; }.form-card,.profile-card { padding:18px; }.table-toolbar { flex-direction:column; }.search-field { max-width:none; }.table-foot { align-items:flex-start; flex-direction:column; gap:10px; }.profile-banner { flex-wrap:wrap; }.profile-banner .status-badge { margin-left:67px; margin-top:-30px; } }
+
+/* Ilustración del login: al costado derecho, desvanecida desde la izquierda y hacia abajo */
+.welcome { position:relative; overflow:hidden; }
+.welcome-inner { position:relative; z-index:1; }
+.welcome-art { position:absolute; top:0; right:0; width:62%; height:100%; object-fit:cover; object-position:left center; pointer-events:none; user-select:none;
+  -webkit-mask-image:linear-gradient(to right,transparent 0%,rgba(0,0,0,.55) 22%,#000 55%),linear-gradient(to bottom,#000 78%,transparent 100%);
+  -webkit-mask-composite:source-in;
+  mask-image:linear-gradient(to right,transparent 0%,rgba(0,0,0,.55) 22%,#000 55%),linear-gradient(to bottom,#000 78%,transparent 100%);
+  mask-composite:intersect; animation:welcome-art-in .9s ease-out both; }
+@keyframes welcome-art-in { from { opacity:0; transform:translateX(24px); } to { opacity:1; transform:none; } }
+@media (max-width:900px) { .welcome-art { width:100%; opacity:.18; } }
+@media (prefers-reduced-motion:reduce) { .welcome-art { animation:none; } }
+
+/* Menú: las secciones del actor hacen scroll; Transversal queda anclado y siempre visible */
+.sidebar-scroll { flex:1; min-height:0; overflow-y:auto; scrollbar-width:thin; scrollbar-color:#ffffff30 transparent; }
+.sidebar-common { border-top:1px solid #ffffff18; margin-top:6px; }
+.sidebar-common .module-label { padding-top:12px; padding-bottom:6px; }
+.sidebar-bottom { margin-top:0; }

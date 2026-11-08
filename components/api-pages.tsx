@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Plus, X } from 'lucide-react'
 import {
-  api, errorMessage, TIPOS_CATALOGO,
-  type Catalogo, type Cuenta, type Rol, type TipoCatalogo,
+  api, errorMessage, peek, TIPOS_CATALOGO,
+  type Catalogo, type Cuenta, type NuevaPersona, type Persona, type Rol, type TipoCatalogo, type TipoPersona,
 } from '@/lib/api'
 
 type Notify = (message: string) => void
@@ -13,27 +13,27 @@ const ROL_LABEL: Record<Rol, string> = {
   ADMINISTRADOR: 'Administrador', VIGILANTE: 'Vigilante', PERSONA_VINCULADA: 'Persona vinculada',
 }
 
-function Badge({ tone, children }: { tone: string; children: React.ReactNode }) {
+export function Badge({ tone, children }: { tone: string; children: React.ReactNode }) {
   return <span className={`status-badge ${tone}`}>{children}</span>
 }
 
-function Header({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
+export function Header({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
   return <section className="hero-row"><div><span className="section-kicker">{kicker}</span><h2>{title}</h2></div>{children}</section>
 }
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
     <div className="modal-head"><div><h3>{title}</h3></div><button onClick={onClose} aria-label="Cerrar"><X size={18} /></button></div>
     {children}
   </div></div>
 }
 
-function ErrorLine({ message }: { message: string }) {
+export function ErrorLine({ message }: { message: string }) {
   return message ? <p role="alert" style={{ color: '#b42318', fontSize: 13, margin: '8px 0' }}>{message}</p> : null
 }
 
 // Carga una lista y expone recarga/estado.
-function useList<T>(load: () => Promise<T[]>, deps: unknown[]) {
+export function useList<T>(load: () => Promise<T[]>, deps: unknown[]) {
   const [items, setItems] = useState<T[] | null>(null)
   const [error, setError] = useState('')
   const reload = useCallback(() => {
@@ -45,7 +45,75 @@ function useList<T>(load: () => Promise<T[]>, deps: unknown[]) {
   return { items, setItems, error, reload }
 }
 
-const Loading = () => <div className="empty-panel"><p>Cargando…</p></div>
+export const Loading = () => <div className="empty-panel"><p>Cargando…</p></div>
+
+// Datos de referencia: arranca con lo que haya en caché (instantáneo) y revalida en segundo plano.
+function useReference<T>(key: string, load: () => Promise<T[]>) {
+  const [items, setItems] = useState<T[]>(peek<T[]>(key) ?? [])
+  const [loading, setLoading] = useState(peek<T[]>(key) === undefined)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let alive = true
+    load().then(v => { if (alive) { setItems(v); setError('') } })
+      .catch(e => { if (alive) setError(errorMessage(e)) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return { items, loading, error }
+}
+
+export function useCatalog(tipo: TipoCatalogo) {
+  return useReference<Catalogo>(`cat:${tipo}`, () => api.catalogos.activos(tipo)).items
+}
+export function useTiposPersona() {
+  return useReference<TipoPersona>('tipos-persona', api.tiposPersona)
+}
+
+/* ───────────── Formulario de persona (compartido) ───────────── */
+
+export type PersonaForm = {
+  tipoPersonaId: string; tipoDocumentoId: string; tipoDocumento: string; numeroDocumento: string; nombres: string
+  apellidos: string; telefono: string; correo: string; autoriza: boolean
+}
+export const emptyPersona: PersonaForm = {
+  tipoPersonaId: '', tipoDocumentoId: '', tipoDocumento: '', numeroDocumento: '', nombres: '', apellidos: '', telefono: '', correo: '', autoriza: false,
+}
+export const personaEdit = (f: PersonaForm) => ({
+  nombres: f.nombres, apellidos: f.apellidos, telefono: f.telefono || undefined, correo: f.correo || undefined,
+})
+export const formFromPersona = (p: Persona): PersonaForm => ({
+  ...emptyPersona, nombres: p.nombres, apellidos: p.apellidos, telefono: p.telefono ?? '', correo: p.correo ?? '',
+  numeroDocumento: p.numeroDocumento, tipoDocumento: p.tipoDocumento, tipoPersonaId: String(p.tipoPersonaId), autoriza: true,
+})
+export const personaPayload = (f: PersonaForm): NuevaPersona => ({
+  tipoPersonaId: +f.tipoPersonaId, tipoDocumentoId: +f.tipoDocumentoId, numeroDocumento: f.numeroDocumento,
+  nombres: f.nombres, apellidos: f.apellidos, telefono: f.telefono || undefined, correo: f.correo || undefined,
+  autorizaTratamientoDatos: f.autoriza,
+})
+
+export function PersonaFields({ f, setF, lockCore = false }: { f: PersonaForm; setF: (f: PersonaForm) => void; lockCore?: boolean }) {
+  const docs = useReference<Catalogo>('cat:TIPO_DOCUMENTO', () => api.catalogos.activos('TIPO_DOCUMENTO'))
+  const tipos = useTiposPersona()
+  const set = (k: keyof PersonaForm) => (v: string) => setF({ ...f, [k]: v })
+  const placeholder = (loading: boolean, error: string) => (loading ? 'Cargando…' : error ? 'No se pudo cargar' : 'Selecciona…')
+  // Al editar solo conocemos el nombre del documento: se busca su id para mostrarlo en el desplegable.
+  const docValue = lockCore ? String(docs.items.find(d => d.nombre === f.tipoDocumento)?.id ?? '') : f.tipoDocumentoId
+  return <>
+    <label>Nombres<b>*</b><input required value={f.nombres} onChange={e => set('nombres')(e.target.value)} /></label>
+    <label>Apellidos<b>*</b><input required value={f.apellidos} onChange={e => set('apellidos')(e.target.value)} /></label>
+    <label>Tipo de documento<b>*</b><select required disabled={lockCore} value={docValue} onChange={e => set('tipoDocumentoId')(e.target.value)}>
+      <option value="">{placeholder(docs.loading, docs.error)}</option>{docs.items.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select>
+      {docs.error && <small style={{ color: '#b42318' }}>{docs.error}</small>}</label>
+    <label>Número de documento<b>*</b><input required disabled={lockCore} value={f.numeroDocumento} onChange={e => set('numeroDocumento')(e.target.value)} /></label>
+    <label>Tipo de persona<b>*</b><select required disabled={lockCore} value={f.tipoPersonaId} onChange={e => set('tipoPersonaId')(e.target.value)}>
+      <option value="">{placeholder(tipos.loading, tipos.error)}</option>{tipos.items.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select>
+      {tipos.error && <small style={{ color: '#b42318' }}>{tipos.error}</small>}</label>
+    <label>Teléfono<input value={f.telefono} onChange={e => set('telefono')(e.target.value)} /></label>
+    <label>Correo de contacto<input type="email" value={f.correo} onChange={e => set('correo')(e.target.value)} /></label>
+    <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" disabled={lockCore} checked={f.autoriza} onChange={e => setF({ ...f, autoriza: e.target.checked })} style={{ width: 'auto' }} /> Autoriza el tratamiento de datos</label>
+  </>
+}
 
 /* ───────────── Cuentas (CU-005) ───────────── */
 
@@ -79,35 +147,78 @@ export function CuentasPage({ notify, myAccountId }: { notify: Notify; myAccount
   </>
 }
 
+// Asistente en 2 pasos: el paso 1 crea la persona (POST); si el usuario vuelve con "Atrás" y corrige
+// datos, se actualiza (PUT). El paso 2 crea la cuenta con ese personaId (no editable).
+// Si se cierra sin terminar, la persona recién creada se elimina para no dejar registros huérfanos.
 function NuevaCuentaModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: Cuenta) => void }) {
+  const [step, setStep] = useState<1 | 2>(1)
+  const [persona, setPersona] = useState<PersonaForm>(emptyPersona)
+  const [created, setCreated] = useState<Persona | null>(null)
   const [correo, setCorreo] = useState('')
   const [contrasena, setContrasena] = useState('')
-  const [rol, setRol] = useState<Rol>('VIGILANTE')
-  const [personaId, setPersonaId] = useState('')
+  const [rol, setRol] = useState<Rol>('PERSONA_VINCULADA')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const done = useRef(false)
 
-  async function submit(e: React.FormEvent) {
+  function close() {
+    if (created && !done.current) api.personas.eliminar(created.id).catch(() => {})
+    onClose()
+  }
+
+  async function savePersona(e: React.FormEvent) {
     e.preventDefault()
-    setError('')
-    if (rol === 'PERSONA_VINCULADA' && !personaId) return setError('El ID de persona es obligatorio para una persona vinculada')
-    setBusy(true)
+    setError(''); setBusy(true)
     try {
-      onCreated(await api.cuentas.crear({ correo, contrasena, rol, ...(personaId ? { personaId: Number(personaId) } : {}) }))
+      const p = created
+        ? await api.personas.actualizar(created.id, personaEdit(persona))
+        : await api.personas.crear(personaPayload(persona))
+      setCreated(p)
+      if (!correo && persona.correo) setCorreo(persona.correo)
+      setStep(2)
+    } catch (err) { setError(errorMessage(err)) }
+    setBusy(false)
+  }
+
+  // Documento y tipo no se pueden editar: se descarta la persona y se vuelve a empezar.
+  async function discard() {
+    if (!created) return
+    setError(''); setBusy(true)
+    try { await api.personas.eliminar(created.id); setCreated(null) } catch (err) { setError(errorMessage(err)) }
+    setBusy(false)
+  }
+
+  async function saveCuenta(e: React.FormEvent) {
+    e.preventDefault()
+    setError(''); setBusy(true)
+    try {
+      const c = await api.cuentas.crear({ correo, contrasena, rol, personaId: created!.id })
+      done.current = true
+      onCreated(c)
     } catch (err) { setError(errorMessage(err)); setBusy(false) }
   }
 
-  return <Modal title="Nueva cuenta" onClose={onClose}><form onSubmit={submit}>
+  if (step === 1) return <Modal title="Nueva cuenta · Paso 1 de 2: datos de la persona" onClose={close}><form onSubmit={savePersona}>
+    <div className="fields-grid"><PersonaFields f={persona} setF={setPersona} lockCore={!!created} /></div>
+    {created && <p style={{ fontSize: 13, margin: '8px 0' }}>Persona registrada (ID {created.id}). Puedes corregir nombres, apellidos, teléfono y correo.
+      El documento y el tipo no se editan:{' '}<button type="button" className="row-action" disabled={busy} onClick={discard}>descartar y empezar de nuevo</button></p>}
+    <ErrorLine message={error} />
+    <div className="form-actions"><button type="button" className="secondary-btn" onClick={close}>Cancelar</button>
+      <button className="primary-btn" disabled={busy}>{created ? 'Guardar cambios y continuar' : 'Continuar'}</button></div>
+  </form></Modal>
+
+  return <Modal title="Nueva cuenta · Paso 2 de 2: datos de la cuenta" onClose={close}><form onSubmit={saveCuenta}>
+    <p style={{ fontSize: 13, margin: '0 0 12px' }}>Persona: <b>{created!.nombres} {created!.apellidos}</b> · {created!.tipoDocumento} {created!.numeroDocumento}</p>
     <div className="fields-grid">
-      <label>Correo<b>*</b><input type="email" required value={correo} onChange={e => setCorreo(e.target.value)} /></label>
-      <label>Contraseña (8–72)<b>*</b><input type="password" required minLength={8} maxLength={72} value={contrasena} onChange={e => setContrasena(e.target.value)} /></label>
+      <label>ID de persona<input disabled readOnly value={created!.id} /></label>
       <label>Rol<b>*</b><select value={rol} onChange={e => setRol(e.target.value as Rol)}>
-        {(Object.keys(ROL_LABEL) as Rol[]).map(r => <option key={r} value={r}>{ROL_LABEL[r]}</option>)}
-      </select></label>
-      <label>ID de persona{rol === 'PERSONA_VINCULADA' && <b>*</b>}<input type="number" min={1} value={personaId} onChange={e => setPersonaId(e.target.value)} /></label>
+        {(Object.keys(ROL_LABEL) as Rol[]).map(r => <option key={r} value={r}>{ROL_LABEL[r]}</option>)}</select></label>
+      <label>Correo de acceso<b>*</b><input type="email" required value={correo} onChange={e => setCorreo(e.target.value)} /></label>
+      <label>Contraseña (8–72)<b>*</b><input type="password" required minLength={8} maxLength={72} value={contrasena} onChange={e => setContrasena(e.target.value)} /></label>
     </div>
     <ErrorLine message={error} />
-    <div className="form-actions"><button type="button" className="secondary-btn" onClick={onClose}>Cancelar</button>
+    <div className="form-actions">
+      <button type="button" className="secondary-btn" disabled={busy} onClick={() => { setError(''); setStep(1) }}>Atrás</button>
       <button className="primary-btn" disabled={busy}><Check size={16} /> Crear cuenta</button></div>
   </form></Modal>
 }
