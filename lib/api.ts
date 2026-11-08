@@ -26,7 +26,7 @@ export type Persona = {
 }
 export type NuevaPersona = {
   tipoPersonaId: number; tipoDocumentoId: number; numeroDocumento: string; nombres: string; apellidos: string
-  telefono?: string; correo?: string; autorizaTratamientoDatos: boolean
+  telefono?: string; correo?: string; codigoVerificacion?: string; autorizaTratamientoDatos: boolean
 }
 // Campos editables de una persona (el documento y su tipo no cambian).
 export type PersonaEdit = { nombres: string; apellidos: string; telefono?: string; correo?: string }
@@ -262,6 +262,7 @@ export const api = {
   personas: {
     listar: () => request<Persona[]>('/api/personas'),
     obtener: (id: number) => request<Persona>(`/api/personas/${id}`),
+    verificarCorreo: (correo: string) => request<void>('/api/personas/verificar-correo', { method: 'POST', body: { correo } }),
     crear: (p: NuevaPersona) => request<Persona>('/api/personas', { method: 'POST', body: p }),
     actualizar: (id: number, p: PersonaEdit) => request<Persona>(`/api/personas/${id}`, { method: 'PUT', body: p }),
     desactivar: (id: number, motivo: string) =>

@@ -34,6 +34,7 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | PUT | `/api/catalogos/{id}` | `@SoloAdministrador` | 200 |
 | PATCH | `/api/catalogos/{id}/desactivar` | `@SoloAdministrador` | 200 |
 | PATCH | `/api/catalogos/{id}/reactivar` | `@SoloAdministrador` | 200 |
+| POST | `/api/personas/verificar-correo` | `@SoloAdministrador` | 204 |
 | POST | `/api/personas` | `@SoloAdministrador` | 201 |
 | GET | `/api/personas` · `/api/personas/{id}` | `@SoloAdministrador` | 200 |
 | PUT | `/api/personas/{id}` | `@SoloAdministrador` | 200 |
@@ -278,12 +279,16 @@ Sin body. Solo tipos activos, ordenados por nombre. Sirve para cargar el selecto
 ```
 Los ids del ejemplo son ilustrativos. Un `tipoPersonaId` inexistente en `POST /api/personas` responde 404 («Tipo de persona con id N no existe»).
 
+**Verificación del correo (alta de persona).** Si la persona lleva `correo`, el alta exige un código de 6 dígitos que llega a esa bandeja:
+1. **POST `/api/personas/verificar-correo`** — `{ "correo": "ana@ph.com" }` → **204**. Envía el código (vale 10 minutos; pedir otro invalida el anterior). 400 si el correo no tiene formato válido. Un 204 **no** garantiza que el correo exista (el SMTP no lo sabe en el momento): lo confirma el paso 2.
+2. El administrador pide el código a la persona y lo envía en `codigoVerificacion` al crear.
+
 **POST `/api/personas`**
 ```json
 { "tipoPersonaId": 1, "tipoDocumentoId": 1, "numeroDocumento": "1001", "nombres": "Ana", "apellidos": "Ruiz",
-  "telefono": "3000000000", "correo": "ana@ph.com", "autorizaTratamientoDatos": true }
+  "telefono": "3000000000", "correo": "ana@ph.com", "codigoVerificacion": "483920", "autorizaTratamientoDatos": true }
 ```
-201: `{ id, nombres, apellidos, tipoDocumento, numeroDocumento, tipoPersonaId, tipoPersona, telefono, correo, activa, inmuebleId, vinculoVigente }`. 409 documento duplicado.
+201: `{ id, nombres, apellidos, tipoDocumento, numeroDocumento, tipoPersonaId, tipoPersona, telefono, correo, activa, inmuebleId, vinculoVigente }`. 409 documento duplicado. **422** si hay `correo` y el código falta, es incorrecto, venció, ya se usó o se agotaron 5 intentos; el mensaje (`mensaje` del `ErrorApi`) es «No se pudo verificar el correo: …»: muéstralo tal cual (y ofrece «reenviar código»). Sin `correo` no se pide código. `codigoVerificacion` se ignora si no hay correo.
 
 **PUT `/api/personas/{id}`** (admin) y **PUT `/api/perfil`** (la propia persona) usan el mismo cuerpo; el documento y su tipo no cambian:
 ```json

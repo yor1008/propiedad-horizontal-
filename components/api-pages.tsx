@@ -141,10 +141,10 @@ export function useTiposPersona() {
 
 export type PersonaForm = {
   tipoPersonaId: string; tipoDocumentoId: string; tipoDocumento: string; numeroDocumento: string; nombres: string
-  apellidos: string; telefono: string; correo: string; autoriza: boolean
+  apellidos: string; telefono: string; correo: string; codigo: string; autoriza: boolean
 }
 export const emptyPersona: PersonaForm = {
-  tipoPersonaId: '', tipoDocumentoId: '', tipoDocumento: '', numeroDocumento: '', nombres: '', apellidos: '', telefono: '', correo: '', autoriza: false,
+  tipoPersonaId: '', tipoDocumentoId: '', tipoDocumento: '', numeroDocumento: '', nombres: '', apellidos: '', telefono: '', correo: '', codigo: '', autoriza: false,
 }
 export const personaEdit = (f: PersonaForm) => ({
   nombres: f.nombres, apellidos: f.apellidos, telefono: f.telefono || undefined, correo: f.correo || undefined,
@@ -156,6 +156,7 @@ export const formFromPersona = (p: Persona): PersonaForm => ({
 export const personaPayload = (f: PersonaForm): NuevaPersona => ({
   tipoPersonaId: +f.tipoPersonaId, tipoDocumentoId: +f.tipoDocumentoId, numeroDocumento: f.numeroDocumento,
   nombres: f.nombres, apellidos: f.apellidos, telefono: f.telefono || undefined, correo: f.correo || undefined,
+  codigoVerificacion: f.correo ? f.codigo.trim() || undefined : undefined,
   autorizaTratamientoDatos: f.autoriza,
 })
 
@@ -163,6 +164,15 @@ export function PersonaFields({ f, setF, lockCore = false }: { f: PersonaForm; s
   const docs = useReference<Catalogo>('cat:TIPO_DOCUMENTO', () => api.catalogos.activos('TIPO_DOCUMENTO'))
   const tipos = useTiposPersona()
   const set = (k: keyof PersonaForm) => (v: string) => setF({ ...f, [k]: v })
+  const [sending, setSending] = useState(false)
+  const [codeMsg, setCodeMsg] = useState('')
+  const [codeErr, setCodeErr] = useState('')
+  async function sendCode() {
+    setCodeErr(''); setCodeMsg(''); setSending(true)
+    try { await api.personas.verificarCorreo(f.correo.trim()); setCodeMsg('Código enviado. Vale 10 minutos; si pides otro, el anterior deja de servir.') }
+    catch (err) { setCodeErr(errorMessage(err)) }
+    setSending(false)
+  }
   const placeholder = (loading: boolean, error: string) => (loading ? 'Cargando…' : error ? 'No se pudo cargar' : 'Selecciona…')
   // Al editar solo conocemos el nombre del documento: se busca su id para mostrarlo en el desplegable.
   const docValue = lockCore ? String(docs.items.find(d => d.nombre === f.tipoDocumento)?.id ?? '') : f.tipoDocumentoId
@@ -178,6 +188,16 @@ export function PersonaFields({ f, setF, lockCore = false }: { f: PersonaForm; s
       {tipos.error && <small style={{ color: '#b42318' }}>{tipos.error}</small>}</label>
     <label>Teléfono<input value={f.telefono} onChange={e => set('telefono')(e.target.value)} /></label>
     <label>Correo de contacto<input type="email" value={f.correo} onChange={e => set('correo')(e.target.value)} /></label>
+    {!lockCore && f.correo.trim() && <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: 12, background: '#fbfcfd' }}>
+      <label>Código de verificación del correo<b>*</b>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="6 dígitos" value={f.codigo} onChange={e => set('codigo')(e.target.value.replace(/\D/g, ''))} />
+          <button type="button" className="secondary-btn" disabled={sending} onClick={sendCode} style={{ whiteSpace: 'nowrap' }}>{sending ? 'Enviando…' : codeMsg ? 'Reenviar código' : 'Enviar código'}</button>
+        </div></label>
+      <small style={{ color: 'var(--muted)', fontSize: 11 }}>Pídele a la persona el código que llegó a {f.correo.trim()}.</small>
+      {codeMsg && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#26745b' }}>{codeMsg}</p>}
+      {codeErr && <p role="alert" style={{ margin: '6px 0 0', fontSize: 12, color: '#b42318' }}>{codeErr}</p>}
+    </div>}
     <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" disabled={lockCore} checked={f.autoriza} onChange={e => setF({ ...f, autoriza: e.target.checked })} style={{ width: 'auto' }} /> Autoriza el tratamiento de datos</label>
   </>
 }
@@ -258,7 +278,7 @@ function NuevaCuentaModal({ onClose, onCreated }: { onClose: () => void; onCreat
   async function discard() {
     if (!created) return
     setError(''); setBusy(true)
-    try { await api.personas.eliminar(created.id); setCreated(null) } catch (err) { setError(errorMessage(err)) }
+    try { await api.personas.eliminar(created.id); setCreated(null); setPersona(p => ({ ...p, codigo: '' })) } catch (err) { setError(errorMessage(err)) }
     setBusy(false)
   }
 
