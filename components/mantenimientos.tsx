@@ -33,17 +33,17 @@ export function MantenimientosPage({ notify }: { notify: Notify }) {
         <td>{m.elementoArea}<br /><small>{m.descripcion}</small></td><td>{m.tipo}</td><td>{m.zonaComun ?? 'General'}</td>
         <td>{when(m.fechaHoraInicio)}</td><td>{when(m.fechaHoraFin)}</td><td>{m.responsable ?? '—'}</td>
         <td><Badge tone={tone(m.estado)}>{m.estado}</Badge>{m.motivoCancelacion && <small> · {m.motivoCancelacion}</small>}</td>
-        <td>
-          {m.estado === 'Programado' && <><button className="row-action" onClick={() => iniciar(m)}>Iniciar</button>{' '}<button className="row-action" onClick={() => setForm({ edit: m })}>Editar</button>{' '}</>}
-          {m.estado === 'En curso' && <><button className="row-action" onClick={() => { setObs(''); setFinish(m) }}>Finalizar</button>{' '}</>}
-          {(m.estado === 'Programado' || m.estado === 'En curso') && <button className="row-action" onClick={() => setCancel(m)}>Cancelar</button>}
-        </td>
+        <td><div className="btn-group">
+          {m.estado === 'Programado' && <><button onClick={() => iniciar(m)}>Iniciar</button><button onClick={() => setForm({ edit: m })}>Editar</button></>}
+          {m.estado === 'En curso' && <button onClick={() => { setObs(''); setFinish(m) }}>Finalizar</button>}
+          {(m.estado === 'Programado' || m.estado === 'En curso') && <button className="danger" onClick={() => setCancel(m)}>Cancelar</button>}
+        </div></td>
       </tr>)}
     </Table>}
     {form && <MantenimientoModal edit={form.edit} onClose={() => setForm(null)} onSaved={m => {
       setItems(l => (form.edit ? replaceIn(m)(l) : [m, ...(l ?? [])])); setForm(null); notify('Mantenimiento guardado')
     }} />}
-    {cancel && <TextPrompt title={`Cancelar: ${cancel.elementoArea}`} label="Motivo" submitLabel="Cancelar mantenimiento" onClose={() => setCancel(null)}
+    {cancel && <TextPrompt danger title={`Cancelar: ${cancel.elementoArea}`} label="Motivo" submitLabel="Cancelar mantenimiento" description="Si bloqueaba una zona, su horario se libera para reservas." reasons={['Error de programación', 'Se reprogramó', 'Falta de proveedor']} onClose={() => setCancel(null)}
       onSubmit={async motivo => { setItems(replaceIn(await api.mantenimientos.cancelar(cancel.id, motivo))); setCancel(null); notify('Mantenimiento cancelado') }} />}
     {finish && <FormModal title={`Finalizar: ${finish.elementoArea}`} submitLabel="Finalizar" onClose={() => setFinish(null)} onSubmit={async () => {
       setItems(replaceIn(await api.mantenimientos.finalizar(finish.id, obs.trim() || undefined))); setFinish(null); notify('Mantenimiento completado')

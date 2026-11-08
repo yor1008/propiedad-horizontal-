@@ -63,14 +63,14 @@ export function ZonasPage({ notify }: { notify: Notify }) {
         <td>{z.requiereAprobacion ? 'Requiere' : 'Automática'}</td>
         <td>{z.horarios.map(h => `${dia(h.diaSemana).slice(0, 3)} ${hh(h.horaInicio)}–${hh(h.horaFin)}`).join(' · ')}</td>
         <td><Badge tone={z.activa ? 'green' : 'amber'}>{z.activa ? 'Activa' : 'Inactiva'}</Badge></td>
-        <td><button className="row-action" onClick={() => setForm({ edit: z })}>Editar</button>{' '}
-          {z.activa ? <button className="row-action" onClick={() => setOff(z)}>Desactivar</button> : <button className="row-action" onClick={() => reactivar(z)}>Reactivar</button>}</td>
+        <td><div className="btn-group"><button onClick={() => setForm({ edit: z })}>Editar</button>
+          {z.activa ? <button className="danger" onClick={() => setOff(z)}>Desactivar</button> : <button onClick={() => reactivar(z)}>Reactivar</button>}</div></td>
       </tr>)}
     </Table>}
     {form && <ZonaModal edit={form.edit} onClose={() => setForm(null)} onSaved={z => {
       setItems(l => (form.edit ? replaceIn(z)(l) : [...(l ?? []), z])); setForm(null); notify('Zona guardada')
     }} />}
-    {off && <TextPrompt title={`Desactivar ${off.nombre}`} label="Motivo" submitLabel="Desactivar" onClose={() => setOff(null)}
+    {off && <TextPrompt danger title={`Desactivar ${off.nombre}`} label="Motivo" submitLabel="Desactivar zona" description="Dejará de aparecer para reservar. Podrás reactivarla después." reasons={['En remodelación', 'Fuera de servicio', 'Decisión de la administración']} onClose={() => setOff(null)}
       onSubmit={async m => { setItems(replaceIn(await api.zonas.desactivar(off.id, m))); setOff(null); notify('Zona desactivada') }} />}
   </>
 }
@@ -101,7 +101,7 @@ function ZonaModal({ edit, onClose, onSaved }: { edit?: Zona; onClose: () => voi
       <option value="">—</option><option value="DIA">Día</option><option value="SEMANA">Semana</option><option value="MES">Mes</option></select></label>
     <div style={{ gridColumn: '1 / -1' }}>
       <b style={{ fontSize: 13 }}>Horarios<span> *</span></b>
-      {f.horarios.map((h, i) => <div key={i} style={{ display: 'flex', gap: 8, margin: '6px 0', alignItems: 'center' }}>
+      {f.horarios.map((h, i) => <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '6px 0', alignItems: 'center' }}>
         <select value={h.diaSemana} onChange={e => setH(i, { diaSemana: e.target.value as Horario['diaSemana'] })}>{DIAS_SEMANA.map(d => <option key={d} value={d}>{dia(d)}</option>)}</select>
         <input type="time" required value={h.horaInicio} onChange={e => setH(i, { horaInicio: e.target.value })} />
         <input type="time" required value={h.horaFin} onChange={e => setH(i, { horaFin: e.target.value })} />
@@ -173,6 +173,16 @@ export function ReservasPage({ notify, admin }: { notify: Notify; admin: boolean
   }
 
   const titles = { cancelar: 'Cancelar', rechazar: 'Rechazar', anular: 'Anular' }
+  const descs = {
+    cancelar: 'Cancelas tu reserva y el horario queda libre.',
+    rechazar: 'El solicitante recibirá una notificación con este motivo.',
+    anular: 'Cancela la reserva sin límite de horas; el solicitante recibirá una notificación.',
+  }
+  const reasonsBy = {
+    cancelar: ['Cambio de planes', 'Ya no es necesaria'],
+    rechazar: ['Horario no disponible', 'No cumple las condiciones de uso', 'Aforo excedido'],
+    anular: ['Mantenimiento de la zona', 'Incumplimiento de normas', 'Solicitud del residente'],
+  }
 
   return <>
     <Header kicker="OPERACIONES · ESPACIOS" title={admin ? 'Gestionar reservas' : 'Mis reservas'} />
@@ -182,16 +192,16 @@ export function ReservasPage({ notify, admin }: { notify: Notify; admin: boolean
         <td>{r.zona}</td>{admin && <td>{r.solicitante} · {r.inmueble}</td>}
         <td>{dia_fecha(r.fecha)}</td><td>{hh(r.horaInicio)} – {hh(r.horaFin)}</td><td>{r.numeroAsistentes}</td>
         <td><Badge tone={estadoTone(r.estado)}>{r.estado}</Badge>{r.motivoRechazoCancelacion && <small> · {r.motivoRechazoCancelacion}</small>}</td>
-        <td>
+        <td><div className="btn-group">
           {admin ? <>
-            {r.estado === 'Pendiente' && <><button className="row-action" onClick={() => { setCond(''); setApprove(r) }}>Aprobar</button>{' '}<button className="row-action" onClick={() => setPrompt({ r, kind: 'rechazar' })}>Rechazar</button>{' '}</>}
-            {r.estado === 'Aprobada' && <><button className="row-action" onClick={() => finalizar(r)}>Finalizar</button>{' '}</>}
-            {(r.estado === 'Pendiente' || r.estado === 'Aprobada') && <button className="row-action" onClick={() => setPrompt({ r, kind: 'anular' })}>Anular</button>}
-          </> : r.puedeCancelar && <button className="row-action" onClick={() => setPrompt({ r, kind: 'cancelar' })}>Cancelar</button>}
-        </td>
+            {r.estado === 'Pendiente' && <><button onClick={() => { setCond(''); setApprove(r) }}>Aprobar</button><button className="danger" onClick={() => setPrompt({ r, kind: 'rechazar' })}>Rechazar</button></>}
+            {r.estado === 'Aprobada' && <button onClick={() => finalizar(r)}>Finalizar</button>}
+            {(r.estado === 'Pendiente' || r.estado === 'Aprobada') && <button className="danger" onClick={() => setPrompt({ r, kind: 'anular' })}>Anular</button>}
+          </> : r.puedeCancelar && <button className="danger" onClick={() => setPrompt({ r, kind: 'cancelar' })}>Cancelar</button>}
+        </div></td>
       </tr>)}
     </Table>}
-    {prompt && <TextPrompt title={`${titles[prompt.kind]} reserva de ${prompt.r.zona}`} label="Motivo" submitLabel={titles[prompt.kind]} onClose={() => setPrompt(null)}
+    {prompt && <TextPrompt danger title={`${titles[prompt.kind]} reserva de ${prompt.r.zona}`} label="Motivo" submitLabel={`${titles[prompt.kind]} reserva`} description={descs[prompt.kind]} reasons={reasonsBy[prompt.kind]} onClose={() => setPrompt(null)}
       onSubmit={async motivo => {
         const { r, kind } = prompt
         const updated = await (kind === 'cancelar' ? api.reservas.cancelar(r.id, motivo) : kind === 'rechazar' ? api.reservas.rechazar(r.id, motivo) : api.reservas.anular(r.id, motivo))

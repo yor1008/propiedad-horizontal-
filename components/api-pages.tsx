@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Plus, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Check, KeyRound, Plus, Search, X } from 'lucide-react'
 import {
   api, errorMessage, peek, TIPOS_CATALOGO,
-  type Catalogo, type Cuenta, type NuevaPersona, type Persona, type Rol, type TipoCatalogo, type TipoPersona,
+  type Catalogo, type ConfigGeneral, type ConfigNotificacion, type EventoNotificacion, type Cuenta, type NuevaPersona, type Persona, type Rol, type TipoCatalogo, type TipoPersona,
 } from '@/lib/api'
 
 type Notify = (message: string) => void
@@ -18,7 +18,8 @@ export function Badge({ tone, children }: { tone: string; children: React.ReactN
 }
 
 export function Header({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
-  return <section className="hero-row"><div><span className="section-kicker">{kicker}</span><h2>{title}</h2></div>{children}</section>
+  // El título y la ruta ya se muestran en la barra superior; aquí solo van las acciones de la vista.
+  return children ? <section className="hero-row" aria-label={title} style={{ justifyContent: 'flex-end', marginBottom: 18 }}>{children}</section> : null
 }
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -46,6 +47,72 @@ export function useList<T>(load: () => Promise<T[]>, deps: unknown[]) {
 }
 
 export const Loading = () => <div className="empty-panel"><p>Cargando…</p></div>
+
+/* ───────────── Diálogos y filtros reutilizables ───────────── */
+
+// Formulario en modal con descripción opcional, estado "procesando" y estilo de peligro.
+export function FormModal({ title, description, submitLabel, danger, onClose, onSubmit, children }: {
+  title: string; description?: string; submitLabel: string; danger?: boolean
+  onClose: () => void; onSubmit: () => Promise<void>; children?: React.ReactNode
+}) {
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  return <Modal title={title} onClose={onClose}><form onSubmit={async e => {
+    e.preventDefault(); setError(''); setBusy(true)
+    try { await onSubmit() } catch (err) { setError(errorMessage(err)); setBusy(false) }
+  }}>
+    {description && <p className="dialog-desc">{description}</p>}
+    {children && <div className="fields-grid">{children}</div>}
+    <ErrorLine message={error} />
+    <div className="form-actions"><button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancelar</button>
+      <button className={danger ? 'danger-btn' : 'primary-btn'} disabled={busy}><Check size={16} /> {busy ? 'Procesando…' : submitLabel}</button></div>
+  </form></Modal>
+}
+
+// Pide un texto (motivo, respuesta…), con motivos frecuentes para elegir con un toque.
+export function TextPrompt({ title, label, submitLabel, area, description, reasons, danger, onClose, onSubmit }: {
+  title: string; label: string; submitLabel: string; area?: boolean; description?: string; reasons?: string[]; danger?: boolean
+  onClose: () => void; onSubmit: (v: string) => Promise<void>
+}) {
+  const [v, setV] = useState('')
+  return <FormModal title={title} description={description} danger={danger} submitLabel={submitLabel} onClose={onClose} onSubmit={() => onSubmit(v.trim())}>
+    {reasons && <div className="chips" role="group" aria-label="Motivos frecuentes">
+      {reasons.map(r => <button key={r} type="button" className={`chip ${v === r ? 'on' : ''}`} onClick={() => setV(r)}>{r}</button>)}</div>}
+    <label style={{ gridColumn: '1 / -1' }}>{label}<b>*</b>
+      {area ? <textarea required value={v} onChange={e => setV(e.target.value)} /> : <input required value={v} onChange={e => setV(e.target.value)} />}
+    </label>
+  </FormModal>
+}
+
+// Confirmación de una acción sin campos: muestra a qué elemento afecta y qué implica.
+export function ConfirmModal({ title, description, details, confirmLabel, danger = true, onClose, onConfirm }: {
+  title: string; description: string; details?: [string, string][]; confirmLabel: string; danger?: boolean
+  onClose: () => void; onConfirm: () => Promise<void>
+}) {
+  return <FormModal title={title} description={description} danger={danger} submitLabel={confirmLabel} onClose={onClose} onSubmit={onConfirm}>
+    {details && <dl className="summary">{details.map(([k, val]) => <div key={k}><dt>{k}</dt><dd>{val}</dd></div>)}</dl>}
+  </FormModal>
+}
+
+const FILTROS = [['todos', 'Todos'], ['activos', 'Activos'], ['inactivos', 'Inactivos']] as const
+
+// Búsqueda de texto + filtro Todos/Activos/Inactivos para las listas administrativas.
+export function useFilter<T>(items: T[] | null, text: (t: T) => string, active?: (t: T) => boolean) {
+  const [q, setQ] = useState('')
+  const [st, setSt] = useState<'todos' | 'activos' | 'inactivos'>('todos')
+  const needle = q.trim().toLowerCase()
+  const shown = useMemo(() => items && items.filter(i =>
+    (!needle || text(i).toLowerCase().includes(needle)) && (!active || st === 'todos' || active(i) === (st === 'activos'))),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [items, needle, st])
+  const bar = items === null ? null : <div className="filter-bar">
+    <div className="search-field"><Search size={16} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar…" aria-label="Buscar" /></div>
+    {active && <div className="seg" role="group" aria-label="Estado">
+      {FILTROS.map(([k, label]) => <button key={k} type="button" className={st === k ? 'on' : ''} onClick={() => setSt(k)}>{label}</button>)}</div>}
+  </div>
+  const foot = (noun: string) => (items && shown && shown.length !== items.length ? `${shown.length} de ${items.length} ${noun}` : `${items?.length ?? 0} ${noun}`)
+  return { shown, bar, foot }
+}
 
 // Datos de referencia: arranca con lo que haya en caché (instantáneo) y revalida en segundo plano.
 function useReference<T>(key: string, load: () => Promise<T[]>) {
@@ -119,7 +186,9 @@ export function PersonaFields({ f, setF, lockCore = false }: { f: PersonaForm; s
 
 export function CuentasPage({ notify, myAccountId }: { notify: Notify; myAccountId?: number }) {
   const { items, setItems, error } = useList<Cuenta>(api.cuentas.listar, [])
+  const view = useFilter(items, c => `${c.correo} ${ROL_LABEL[c.rol]}`, c => c.activa)
   const [open, setOpen] = useState(false)
+  const [off, setOff] = useState<Cuenta | null>(null)
 
   async function toggle(c: Cuenta) {
     try {
@@ -134,15 +203,20 @@ export function CuentasPage({ notify, myAccountId }: { notify: Notify; myAccount
       <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Nueva cuenta</button>
     </Header>
     <ErrorLine message={error} />
+    {view.bar}
     {items === null ? <Loading /> : <div className="panel table-panel"><div className="table-wrap"><table>
       <thead><tr><th>Correo</th><th>Rol</th><th>Persona</th><th>Último acceso</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody>{items.map(c => <tr key={c.id}>
+      <tbody>{(view.shown ?? []).map(c => <tr key={c.id}>
         <td>{c.correo}</td><td>{ROL_LABEL[c.rol]}</td><td>{c.personaId ?? '—'}</td>
         <td>{c.fechaUltimoAcceso ? new Date(c.fechaUltimoAcceso).toLocaleString('es-CO') : '—'}</td>
         <td><Badge tone={c.activa ? 'green' : 'amber'}>{c.activa ? 'Activa' : 'Inactiva'}</Badge></td>
-        <td><button className="row-action" disabled={c.id === myAccountId} onClick={() => toggle(c)}>{c.activa ? 'Desactivar' : 'Reactivar'}</button></td>
+        <td><div className="btn-group"><button className={c.activa ? 'danger' : ''} disabled={c.id === myAccountId} onClick={() => (c.activa ? setOff(c) : toggle(c))}>{c.activa ? 'Desactivar' : 'Reactivar'}</button></div></td>
       </tr>)}</tbody>
-    </table></div><div className="table-foot"><span>{items.length} cuentas</span></div></div>}
+    </table></div><div className="table-foot"><span>{view.foot('cuentas')}</span></div></div>}
+    {off && <ConfirmModal title={`Desactivar ${off.correo}`} confirmLabel="Desactivar cuenta" onClose={() => setOff(null)}
+      description="La cuenta dejará de poder iniciar sesión. Puedes reactivarla cuando quieras."
+      details={[['Correo', off.correo], ['Rol', ROL_LABEL[off.rol]]]}
+      onConfirm={async () => { await toggle(off); setOff(null) }} />}
     {open && <NuevaCuentaModal onClose={() => setOpen(false)} onCreated={c => { setItems(l => [...(l ?? []), c]); setOpen(false); notify('Cuenta creada') }} />}
   </>
 }
@@ -271,8 +345,8 @@ export function CatalogosPage({ notify, isAdmin }: { notify: Notify; isAdmin: bo
         <td><Badge tone={c.activo ? 'green' : 'amber'}>{c.activo ? 'Activo' : 'Inactivo'}</Badge></td>
         {isAdmin && <td>
           {editing?.id === c.id
-            ? <><button className="row-action" onClick={rename}>Guardar</button> <button className="row-action" onClick={() => setEditing(null)}>Cancelar</button></>
-            : <><button className="row-action" onClick={() => setEditing({ id: c.id, nombre: c.nombre })}>Renombrar</button> <button className="row-action" onClick={() => toggle(c)}>{c.activo ? 'Desactivar' : 'Reactivar'}</button></>}
+            ? <div className="btn-group"><button onClick={rename}>Guardar</button><button onClick={() => setEditing(null)}>Cancelar</button></div>
+            : <div className="btn-group"><button onClick={() => setEditing({ id: c.id, nombre: c.nombre })}>Renombrar</button><button className={c.activo ? 'danger' : ''} onClick={() => toggle(c)}>{c.activo ? 'Desactivar' : 'Reactivar'}</button></div>}
         </td>}
       </tr>)}</tbody>
     </table></div><div className="table-foot"><span>{items.length} valores</span></div></div>}
@@ -297,8 +371,8 @@ export function CambiarContrasena({ notify }: { notify: Notify }) {
     setBusy(false)
   }
 
-  return <form onSubmit={submit} className="profile-card" style={{ marginTop: 16, padding: 20 }}>
-    <h3>Cambiar contraseña</h3>
+  return <form onSubmit={submit} className="pf-module">
+    <div className="pf-module-head"><KeyRound size={16} /><h4>Seguridad · Cambiar contraseña</h4></div>
     <div className="fields-grid">
       <label>Contraseña actual<input type="password" required value={actual} onChange={e => setActual(e.target.value)} autoComplete="current-password" /></label>
       <label>Nueva contraseña (8–72)<input type="password" required minLength={8} maxLength={72} value={nueva} onChange={e => setNueva(e.target.value)} autoComplete="new-password" /></label>
@@ -306,4 +380,125 @@ export function CambiarContrasena({ notify }: { notify: Notify }) {
     <ErrorLine message={error} />
     <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Actualizar contraseña</button></div>
   </form>
+}
+
+/* ───────────── Configuración (CU-007, administrador) ───────────── */
+const EVENTO_LABEL: Record<EventoNotificacion, string> = {
+  CORRESPONDENCIA_RECIBIDA: 'Correspondencia recibida',
+  INGRESO_VISITANTE: 'Ingreso de visitante',
+  CAMBIO_ESTADO_RESERVA: 'Cambio de estado de una reserva',
+  RESPUESTA_PQRS: 'Respuesta a una PQRS',
+}
+
+export function ConfiguracionPage({ notify }: { notify: Notify }) {
+  const [general, setGeneral] = useState<ConfigGeneral | null>(null)
+  const [eventos, setEventos] = useState<ConfigNotificacion[] | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    api.configuracion.general().then(setGeneral).catch(e => setError(errorMessage(e)))
+    api.configuracion.notificaciones().then(setEventos).catch(e => setError(errorMessage(e)))
+  }, [])
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault()
+    if (!general) return
+    setBusy(true)
+    try { setGeneral(await api.configuracion.guardarGeneral(general)); notify('Parámetros guardados') }
+    catch (err) { notify(errorMessage(err)) }
+    setBusy(false)
+  }
+  async function cambiar(c: ConfigNotificacion, cambio: Partial<ConfigNotificacion>) {
+    const next = { activa: c.activa, enviarCorreo: c.enviarCorreo, ...cambio }
+    try {
+      const r = await api.configuracion.guardarNotificacion(c.evento, next)
+      setEventos(l => (l ?? []).map(x => (x.evento === r.evento ? r : x)))
+    } catch (err) { notify(errorMessage(err)) }
+  }
+
+  return <>
+    <Header kicker="ADMINISTRACIÓN · PARAMETRIZACIÓN" title="Configuración" />
+    <ErrorLine message={error} />
+    <form onSubmit={guardar} className="profile-card" style={{ padding: 20 }}>
+      <h3>Parámetros generales</h3>
+      {!general ? <p>Cargando…</p> : <>
+        <div className="fields-grid">
+          <label>Máximo de vehículos activos por inmueble (0 = sin límite)
+            <input type="number" min={0} required value={general.maxVehiculosPorInmueble}
+              onChange={e => setGeneral({ ...general, maxVehiculosPorInmueble: Number(e.target.value) })} /></label>
+          <label>Plazo para responder una PQRS (días hábiles)
+            <input type="number" min={1} required value={general.plazoRespuestaPqrsDias}
+              onChange={e => setGeneral({ ...general, plazoRespuestaPqrsDias: Number(e.target.value) })} /></label>
+        </div>
+        <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Guardar</button></div>
+      </>}
+    </form>
+    <section className="profile-card" style={{ marginTop: 16, padding: 20 }}>
+      <h3>Notificaciones por evento</h3>
+      <p style={{ fontSize: 13, opacity: .75 }}>Desactivar un evento evita que se generen nuevas notificaciones (no afecta las ya creadas). El envío por correo se guarda, pero aún no está implementado en el servidor.</p>
+      {!eventos ? <p>Cargando…</p> : <table><thead><tr><th>Evento</th><th>Activa</th><th>Enviar correo</th></tr></thead><tbody>
+        {eventos.map(c => <tr key={c.evento}>
+          <td>{EVENTO_LABEL[c.evento] ?? c.evento}</td>
+          <td><input type="checkbox" checked={c.activa} onChange={e => cambiar(c, { activa: e.target.checked })} aria-label={`Activar ${EVENTO_LABEL[c.evento]}`} /></td>
+          <td><input type="checkbox" checked={c.enviarCorreo} onChange={e => cambiar(c, { enviarCorreo: e.target.checked })} aria-label={`Enviar correo ${EVENTO_LABEL[c.evento]}`} /></td>
+        </tr>)}
+      </tbody></table>}
+    </section>
+  </>
+}
+
+/* ───────────── Olvidé / restablecer contraseña (públicos) ───────────── */
+export function OlvideContrasena({ onBack }: { onBack: () => void }) {
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setError(''); setBusy(true)
+    const correo = String(new FormData(e.currentTarget).get('correo') ?? '').trim()
+    try { await api.olvideContrasena(correo); setSent(true) } catch (err) { setError(errorMessage(err)) }
+    setBusy(false)
+  }
+  return <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
+    <h3>Recuperar contraseña</h3>
+    {sent ? <p>Si el correo está registrado, te enviamos un enlace.</p> : <>
+      <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
+        <label>Correo<b>*</b><input name="correo" type="email" required autoComplete="off" /></label>
+      </div>
+      <ErrorLine message={error} />
+      <div className="form-actions"><button className="primary-btn" disabled={busy}>{busy ? 'Enviando…' : 'Enviar enlace'}</button></div>
+    </>}
+    <div className="form-actions"><button type="button" onClick={onBack} style={{ background: 'none', border: 0, textDecoration: 'underline', cursor: 'pointer' }}>Volver al ingreso</button></div>
+  </form>
+}
+
+export function RestablecerContrasena() {
+  const [tokenUrl, setTokenUrl] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setTokenUrl(new URLSearchParams(window.location.search).get('token') ?? '') }, [])
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); setError(''); setBusy(true)
+    const nueva = String(new FormData(e.currentTarget).get('nueva') ?? '')
+    try { await api.restablecerContrasena(tokenUrl!, nueva); setDone(true) } catch (err) { setError(errorMessage(err)) }
+    setBusy(false)
+  }
+  return <main className="welcome"><div className="welcome-inner">
+    <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
+      <h3>Restablecer contraseña</h3>
+      {tokenUrl === null ? <p>Cargando…</p>
+        : done ? <p>Contraseña actualizada. <a href="/">Ir al ingreso</a></p>
+        : !tokenUrl ? <p>El enlace no es válido. <a href="/">Volver al ingreso</a></p>
+        : <>
+          <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
+            <label>Nueva contraseña (8–72)<b>*</b><input name="nueva" type="password" required minLength={8} maxLength={72} autoComplete="new-password" /></label>
+          </div>
+          <ErrorLine message={error} />
+          {error && <p style={{ fontSize: 13 }}><a href="/">Volver al ingreso para pedir otro enlace</a></p>}
+          <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> {busy ? 'Guardando…' : 'Restablecer'}</button></div>
+        </>}
+    </form>
+  </div></main>
 }

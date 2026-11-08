@@ -21,6 +21,8 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | POST | `/api/auth/login` | Público | 200 |
 | GET | `/api/auth/me` | `@Autenticado` | 200 |
 | POST | `/api/auth/cambiar-contrasena` | `@Autenticado` | 204 |
+| POST | `/api/auth/olvide-contrasena` | Público | 204 (siempre) |
+| POST | `/api/auth/restablecer-contrasena` | Público | 204 |
 | POST | `/api/cuentas` | `@SoloAdministrador` | 201 |
 | GET | `/api/cuentas` | `@SoloAdministrador` | 200 |
 | GET | `/api/cuentas/{id}` | `@SoloAdministrador` | 200 |
@@ -93,6 +95,9 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | GET | `/api/notificaciones/mias/conteo` | `@SoloPersonaVinculada` | 200 |
 | PATCH | `/api/notificaciones/{id}/leer` · `/api/notificaciones/leer-todas` | `@SoloPersonaVinculada` | 200 |
 | GET | `/api/mis-inmuebles` | `@SoloPropietario` | 200 |
+| GET · PUT | `/api/configuracion/general` | `@SoloAdministrador` | 200 |
+| GET | `/api/configuracion/notificaciones` | `@SoloAdministrador` | 200 |
+| PUT | `/api/configuracion/notificaciones/{evento}` | `@SoloAdministrador` | 200 |
 
 **Valores de enums**
 - `rol` (`ERolCuenta`): `ADMINISTRADOR`, `VIGILANTE`, `PERSONA_VINCULADA`
@@ -146,6 +151,17 @@ Body (`nueva`: 8–72 caracteres):
 ```
 204 sin cuerpo. 422 si `actual` es incorrecta o `nueva` es igual a la actual.
 Los tokens ya emitidos siguen válidos hasta expirar; haz login de nuevo.
+
+### Olvidé mi contraseña — públicos (sin `Authorization`)
+**1. POST `/api/auth/olvide-contrasena`** — body `{ "correo": "ana@ph.com" }`. **Siempre 204**, exista o no la cuenta (no revela cuáles existen); solo si existe y está activa se envía un correo con un enlace. 400 si `correo` viene vacío. Muestra siempre el mismo mensaje: «Si el correo está registrado, te enviamos un enlace».
+
+El enlace del correo es `{FRONTEND_URL_RESTABLECER}?token=<jwt>` (por defecto `http://localhost:3000/restablecer-contrasena?token=…`). **El front necesita esa página**: lee `token` del query string y llama al paso 2. Vale 30 minutos y **sirve una sola vez**.
+
+**2. POST `/api/auth/restablecer-contrasena`** — body `{ "token": "<jwt del enlace>", "nueva": "NuevaClave-456" }` (`nueva`: 8–72 caracteres).
+- 204 sin cuerpo → llévalo al login con la clave nueva.
+- 422 si el enlace es inválido, expiró o ya se usó («El enlace de restablecimiento no es valido o ya expiro») → ofrece pedir otro.
+- 400 si `nueva` es muy corta o faltan campos.
+Este token **no** sirve como `Authorization: Bearer` (da 401).
 
 ---
 
@@ -444,6 +460,26 @@ Se crean en el momento del evento (no hay retroactivas). El correo electrónico 
 **GET `/api/mis-inmuebles`** → `[ { id, torreBloque, numero, piso, tipo, ocupado, activo, parqueaderos: [ ParqueaderoResponse ] } ]`. Solo el inmueble donde la persona del token es **propietaria con vínculo vigente** (hoy una persona tiene un solo vínculo, así que la lista trae 0 o 1 elemento; es lista por si el modelo crece). Residentes sin ser propietarios reciben 403.
 
 **Perfil de administrador y vigilante:** `/api/perfil` es solo para personas vinculadas (CU-003). Para mostrar la cuenta de un administrador o vigilante usa `GET /api/auth/me` (correo, rol).
+
+---
+
+## Configuración (CU-007) — `@SoloAdministrador`
+
+### Parámetros generales
+- **GET `/api/configuracion/general`** → `{ "maxVehiculosPorInmueble": 0, "plazoRespuestaPqrsDias": 15 }`
+- **PUT `/api/configuracion/general`** — mismo cuerpo, ambos campos obligatorios:
+  - `maxVehiculosPorInmueble` (≥ 0): máximo de vehículos **activos** por inmueble; `0` = sin límite. Al superarlo, `POST /api/vehiculos` da 422.
+  - `plazoRespuestaPqrsDias` (≥ 1): días hábiles (lunes a viernes, sin festivos) para responder una PQRS; define `vencida` en las PQRS.
+  - Valores fuera de rango → 400.
+
+### Notificaciones por evento
+- **GET `/api/configuracion/notificaciones`** → siempre 4 elementos, uno por `evento` (ver tabla de eventos en *Notificaciones*):
+```json
+[ { "evento": "CORRESPONDENCIA_RECIBIDA", "activa": true, "enviarCorreo": false }, … ]
+```
+- **PUT `/api/configuracion/notificaciones/{evento}`** — body `{ "activa": true, "enviarCorreo": false }` (ambos obligatorios) → el elemento actualizado. Evento desconocido → 400.
+  - `activa=false`: ese evento deja de generar notificaciones (no afecta las ya creadas).
+  - `enviarCorreo`: se guarda, pero **el envío de correos aún no está implementado**.
 
 ---
 

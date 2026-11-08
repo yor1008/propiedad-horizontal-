@@ -1,19 +1,21 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Check, Plus, Search } from 'lucide-react'
+import { Check, Home, IdCard, Mail, Plus, Search, Shield, UserRound } from 'lucide-react'
 import {
   api, errorMessage,
   type Catalogo, type Correspondencia, type Inmueble, type Parqueadero, type Persona, type Pqrs,
-  type Me, type TipoCatalogo, type Vehiculo,
+  type DirectorioInmueble, type Me, type TipoCatalogo, type Vehiculo,
 } from '@/lib/api'
-import { Badge, emptyPersona, ErrorLine, formFromPersona, Header, Loading, Modal, PersonaFields, personaEdit, personaPayload, useCatalog, useList, useTiposPersona, type PersonaForm } from './api-pages'
+import { Badge, ConfirmModal, FormModal, TextPrompt, useFilter, emptyPersona, ErrorLine, formFromPersona, Header, Loading, Modal, PersonaFields, personaEdit, personaPayload, useCatalog, useList, useTiposPersona, type PersonaForm } from './api-pages'
 
 type Notify = (message: string) => void
 
 export const fecha = (v: string | null) => (v ? new Date(v).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 
 /* ───────────── utilidades compartidas ───────────── */
+
+export { FormModal, TextPrompt, ConfirmModal }
 
 export function Table({ head, children, foot }: { head: string[]; children: React.ReactNode; foot: string }) {
   return <div className="panel table-panel"><div className="table-wrap"><table>
@@ -31,40 +33,13 @@ export function Select({ label, value, onChange, children, required = true }: {
 
 const options = (items: Catalogo[]) => items.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)
 
-// Modal de formulario con envío asíncrono y manejo de error.
-export function FormModal({ title, submitLabel, onClose, onSubmit, children }: {
-  title: string; submitLabel: string; onClose: () => void; onSubmit: () => Promise<void>; children: React.ReactNode
-}) {
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  return <Modal title={title} onClose={onClose}><form onSubmit={async e => {
-    e.preventDefault(); setError(''); setBusy(true)
-    try { await onSubmit() } catch (err) { setError(errorMessage(err)); setBusy(false) }
-  }}>
-    <div className="fields-grid">{children}</div>
-    <ErrorLine message={error} />
-    <div className="form-actions"><button type="button" className="secondary-btn" onClick={onClose}>Cancelar</button>
-      <button className="primary-btn" disabled={busy}><Check size={16} /> {submitLabel}</button></div>
-  </form></Modal>
-}
-
-export function TextPrompt({ title, label, submitLabel, area, onClose, onSubmit }: {
-  title: string; label: string; submitLabel: string; area?: boolean; onClose: () => void; onSubmit: (v: string) => Promise<void>
-}) {
-  const [v, setV] = useState('')
-  return <FormModal title={title} submitLabel={submitLabel} onClose={onClose} onSubmit={() => onSubmit(v.trim())}>
-    <label style={{ gridColumn: '1 / -1' }}>{label}<b>*</b>
-      {area ? <textarea required value={v} onChange={e => setV(e.target.value)} /> : <input required value={v} onChange={e => setV(e.target.value)} />}
-    </label>
-  </FormModal>
-}
-
 export const replaceIn = <T extends { id: number }>(u: T) => (l: T[] | null) => (l ?? []).map(x => (x.id === u.id ? u : x))
 
 /* ───────────── Personas ───────────── */
 
 export function PersonasPage({ notify }: { notify: Notify }) {
   const { items, setItems, error } = useList<Persona>(api.personas.listar, [])
+  const view = useFilter(items, p => `${p.nombres} ${p.apellidos} ${p.numeroDocumento} ${p.correo ?? ''} ${p.tipoPersona}`, p => p.activa)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Persona | null>(null)
   const [ending, setEnding] = useState<Persona | null>(null)
@@ -80,31 +55,32 @@ export function PersonasPage({ notify }: { notify: Notify }) {
       <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Nueva persona</button>
     </Header>
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Nombre', 'Documento', 'Tipo', 'Contacto', 'Vínculo', 'Estado', 'Acciones']} foot={`${items.length} personas`}>
-      {items.map(p => <tr key={p.id}>
+    {view.bar}
+    {items === null ? <Loading /> : <Table head={['Nombre', 'Documento', 'Tipo', 'Contacto', 'Vínculo', 'Estado', 'Acciones']} foot={view.foot('personas')}>
+      {(view.shown ?? []).map(p => <tr key={p.id}>
         <td>{p.nombres} {p.apellidos}</td><td>{p.tipoDocumento} {p.numeroDocumento}</td><td>{p.tipoPersona}</td>
         <td>{p.correo ?? p.telefono ?? '—'}</td>
         <td>{p.vinculoVigente ? `Inmueble #${p.inmuebleId}` : 'Sin vínculo'}</td>
         <td><Badge tone={p.activa ? 'green' : 'amber'}>{p.activa ? 'Activa' : 'Inactiva'}</Badge></td>
-        <td>
-          <button className="row-action" onClick={() => setEditing(p)}>Editar</button>{' '}
-          {p.activa ? <button className="row-action" onClick={() => setDeact(p)}>Desactivar</button> : <button className="row-action" onClick={() => reactivar(p)}>Reactivar</button>}{' '}
-          {p.vinculoVigente && <button className="row-action" onClick={() => setEnding(p)}>Finalizar vínculo</button>}{' '}
-          <button className="row-action" onClick={() => setDel(p)}>Eliminar</button>
-        </td>
+        <td><div className="btn-group">
+          <button onClick={() => setEditing(p)}>Editar</button>
+          {p.activa ? <button className="danger" onClick={() => setDeact(p)}>Desactivar</button> : <button onClick={() => reactivar(p)}>Reactivar</button>}
+          {p.vinculoVigente && <button onClick={() => setEnding(p)}>Finalizar vínculo</button>}
+          <button className="danger" onClick={() => setDel(p)}>Eliminar</button>
+        </div></td>
       </tr>)}
     </Table>}
     {open && <NuevaPersona onClose={() => setOpen(false)} onCreated={p => { setItems(l => [...(l ?? []), p]); setOpen(false); notify('Persona creada') }} />}
     {editing && <EditarPersona persona={editing} onClose={() => setEditing(null)} onSaved={p => { setItems(replaceIn(p)); setEditing(null); notify('Persona actualizada') }}
       save={f => api.personas.actualizar(editing.id, personaEdit(f))} />}
-    {ending && <TextPrompt title={`Finalizar vínculo de ${ending.nombres}`} label="Motivo" submitLabel="Finalizar" onClose={() => setEnding(null)}
+    {ending && <TextPrompt title={`Finalizar vínculo de ${ending.nombres}`} label="Motivo" submitLabel="Finalizar vínculo" description="Termina el vínculo actual con el inmueble. La persona sigue activa y puede vincularse de nuevo." reasons={['Se mudó', 'Venta del inmueble', 'Fin del contrato de arriendo']} onClose={() => setEnding(null)}
       onSubmit={async motivo => { setItems(replaceIn(await api.personas.finalizarVinculo(ending.id, motivo))); setEnding(null); notify('Vínculo finalizado') }} />}
-    {deact && <TextPrompt title={`Desactivar a ${deact.nombres}`} label="Motivo" submitLabel="Desactivar" onClose={() => setDeact(null)}
+    {deact && <TextPrompt danger title={`Desactivar a ${deact.nombres} ${deact.apellidos}`} label="Motivo" submitLabel="Desactivar persona" description="La persona quedará inactiva y dejará de tener vínculo vigente (el inmueble puede pasar a no ocupado). Podrás reactivarla después." reasons={['Se mudó', 'Solicitud del residente', 'Registro duplicado', 'Fallecimiento']} onClose={() => setDeact(null)}
       onSubmit={async motivo => { setItems(replaceIn(await api.personas.desactivar(deact.id, motivo))); setDeact(null); notify('Persona desactivada') }} />}
-    {del && <FormModal title={`Eliminar a ${del.nombres} ${del.apellidos}`} submitLabel="Eliminar" onClose={() => setDel(null)}
-      onSubmit={async () => { await api.personas.eliminar(del.id); setItems(l => (l ?? []).filter(x => x.id !== del.id)); setDel(null); notify('Persona eliminada') }}>
-      <p style={{ gridColumn: '1 / -1', fontSize: 13 }}>Se borra de forma definitiva. Solo es posible si la persona no tiene historia (vínculos, cuenta, vehículos, PQRS, reservas…); si la tiene, usa <b>Desactivar</b>.</p>
-    </FormModal>}
+    {del && <ConfirmModal title={`Eliminar a ${del.nombres} ${del.apellidos}`} confirmLabel="Eliminar definitivamente" onClose={() => setDel(null)}
+      description="Se borra de forma definitiva y no se puede deshacer. Solo es posible si la persona no tiene historia (vínculos, cuenta, vehículos, PQRS, reservas…); si la tiene, usa Desactivar."
+      details={[['Documento', `${del.tipoDocumento} ${del.numeroDocumento}`], ['Tipo', del.tipoPersona], ['Estado', del.activa ? 'Activa' : 'Inactiva']]}
+      onConfirm={async () => { await api.personas.eliminar(del.id); setItems(l => (l ?? []).filter(x => x.id !== del.id)); setDel(null); notify('Persona eliminada') }} />}
   </>
 }
 
@@ -127,6 +103,7 @@ function NuevaPersona({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
 export function InmueblesPage({ notify }: { notify: Notify }) {
   const { items, setItems, error } = useList<Inmueble>(api.inmuebles.listar, [])
+  const view = useFilter(items, i => `${i.torreBloque}-${i.numero} ${i.tipo} ${i.propietario ?? ''}`, i => i.activo)
   const tipos = useCatalog('TIPO_INMUEBLE')
   const [form, setForm] = useState<{ edit?: Inmueble } | null>(null)
   const [f, setF] = useState({ torreBloque: '', numero: '', piso: '', tipoId: '' })
@@ -146,13 +123,16 @@ export function InmueblesPage({ notify }: { notify: Notify }) {
       <button className="primary-btn" onClick={openNew}><Plus size={16} /> Nuevo inmueble</button>
     </Header>
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Inmueble', 'Piso', 'Tipo', 'Propietario', 'Estado', 'Acciones']} foot={`${items.length} inmuebles`}>
-      {items.map(i => <tr key={i.id}>
-        <td>{i.torreBloque}-{i.numero} <small>(#{i.id})</small></td><td>{i.piso}</td><td>{i.tipo}</td><td>{i.propietario ?? '—'}</td>
+    {view.bar}
+    {items === null ? <Loading /> : <Table head={['Inmueble', 'Piso', 'Tipo', 'Propietario', 'Estado', 'Acciones']} foot={view.foot('inmuebles')}>
+      {(view.shown ?? []).map(i => <tr key={i.id}>
+        <td>{i.torreBloque}-{i.numero}</td><td>{i.piso}</td><td>{i.tipo}</td><td>{i.propietario ?? '—'}</td>
         <td><Badge tone={!i.activo ? 'amber' : i.ocupado ? 'green' : 'neutral'}>{!i.activo ? 'Inactivo' : i.ocupado ? 'Ocupado' : 'Disponible'}</Badge></td>
-        <td><button className="row-action" onClick={() => openEdit(i)}>Editar</button>{' '}
-          {i.activo ? <button className="row-action" onClick={() => setOff(i)}>Desactivar</button> : <button className="row-action" onClick={() => reactivar(i)}>Reactivar</button>}{' '}
-          <button className="row-action" onClick={() => setDel(i)}>Eliminar</button></td>
+        <td><div className="btn-group">
+          <button onClick={() => openEdit(i)}>Editar</button>
+          {i.activo ? <button className="danger" onClick={() => setOff(i)}>Desactivar</button> : <button onClick={() => reactivar(i)}>Reactivar</button>}
+          <button className="danger" onClick={() => setDel(i)}>Eliminar</button>
+        </div></td>
       </tr>)}
     </Table>}
     {form && <FormModal title={form.edit ? `Editar ${form.edit.torreBloque}-${form.edit.numero}` : 'Nuevo inmueble'} submitLabel="Guardar" onClose={() => setForm(null)} onSubmit={async () => {
@@ -166,61 +146,137 @@ export function InmueblesPage({ notify }: { notify: Notify }) {
       <label>Piso<b>*</b><input type="number" required value={f.piso} onChange={e => setF({ ...f, piso: e.target.value })} /></label>
       <Select label="Tipo" value={f.tipoId} onChange={v => setF({ ...f, tipoId: v })}>{options(tipos)}</Select>
     </FormModal>}
-    {off && <TextPrompt title={`Desactivar ${off.torreBloque}-${off.numero}`} label="Motivo" submitLabel="Desactivar" onClose={() => setOff(null)}
+    {off && <TextPrompt danger title={`Desactivar inmueble ${off.torreBloque}-${off.numero}`} label="Motivo" submitLabel="Desactivar inmueble" description="Solo es posible si no tiene personas con vínculo vigente (finaliza antes sus vínculos). Un inmueble inactivo no admite nuevos vínculos." reasons={['Fuera de servicio', 'Remodelación', 'Registro duplicado']} onClose={() => setOff(null)}
       onSubmit={async motivo => { setItems(replaceIn(await api.inmuebles.desactivar(off.id, motivo))); setOff(null); notify('Inmueble desactivado') }} />}
-    {del && <FormModal title={`Eliminar ${del.torreBloque}-${del.numero}`} submitLabel="Eliminar" onClose={() => setDel(null)}
-      onSubmit={async () => { await api.inmuebles.eliminar(del.id); setItems(l => (l ?? []).filter(x => x.id !== del.id)); setDel(null); notify('Inmueble eliminado') }}>
-      <p style={{ gridColumn: '1 / -1', fontSize: 13 }}>Se borra de forma definitiva. Solo es posible si nunca se usó (sin personas, vehículos, correspondencia, PQRS, reservas…); si tiene historia, usa <b>Desactivar</b>.</p>
-    </FormModal>}
+    {del && <ConfirmModal title={`Eliminar inmueble ${del.torreBloque}-${del.numero}`} confirmLabel="Eliminar definitivamente" onClose={() => setDel(null)}
+      description="Se borra de forma definitiva y no se puede deshacer. Solo es posible si nunca se usó (sin personas, vehículos, correspondencia, PQRS, reservas…); si tiene historia, usa Desactivar."
+      details={[['Tipo', del.tipo], ['Piso', String(del.piso)], ['Estado', del.activo ? 'Activo' : 'Inactivo']]}
+      onConfirm={async () => { await api.inmuebles.eliminar(del.id); setItems(l => (l ?? []).filter(x => x.id !== del.id)); setDel(null); notify('Inmueble eliminado') }} />}
   </>
 }
 
 /* ───────────── Vinculaciones ───────────── */
 
+const iniciales = (p: Persona) => `${p.nombres[0] ?? ''}${p.apellidos[0] ?? ''}`.toUpperCase()
+
+// Elegir una persona con búsqueda (por nombre o documento) en lugar de un desplegable largo.
+function PersonaPicker({ personas, value, onChange }: { personas: Persona[]; value: string; onChange: (id: string) => void }) {
+  const [q, setQ] = useState('')
+  const n = q.trim().toLowerCase()
+  const list = personas.filter(p => !n || `${p.nombres} ${p.apellidos} ${p.numeroDocumento}`.toLowerCase().includes(n))
+  return <div style={{ gridColumn: '1 / -1' }}>
+    <span className="field-label">Persona<b>*</b></span>
+    <div className="search-field" style={{ maxWidth: 'none', marginBottom: 8 }}><Search size={16} />
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre o documento…" aria-label="Buscar persona" /></div>
+    <div className="pick-list" role="listbox" aria-label="Personas disponibles">
+      {list.length === 0 ? <p className="pick-empty">{personas.length === 0 ? 'No hay personas activas sin vínculo. Crea una en Personas.' : 'Sin resultados.'}</p>
+        : list.map(p => { const on = value === String(p.id); return <button key={p.id} type="button" role="option" aria-selected={on} className={`pick-item ${on ? 'on' : ''}`} onClick={() => onChange(String(p.id))}>
+          <span className="avatar-sm">{iniciales(p)}</span>
+          <span className="pick-text"><strong>{p.nombres} {p.apellidos}</strong><small>{p.tipoDocumento} {p.numeroDocumento}</small></span>
+          {on && <Check size={16} />}
+        </button> })}
+    </div>
+  </div>
+}
+
+type OcupacionFiltro = 'todos' | 'ocupados' | 'disponibles'
+
 export function VinculacionesPage({ notify }: { notify: Notify }) {
   const tiposPersona = useTiposPersona()
   const inmuebles = useList<Inmueble>(api.inmuebles.listar, [])
   const personas = useList<Persona>(api.personas.listar, [])
-  const [sel, setSel] = useState('')
+  const [sel, setSel] = useState<number | null>(null)
+  const [q, setQ] = useState('')
+  const [filtro, setFiltro] = useState<OcupacionFiltro>('todos')
   const [moradores, setMoradores] = useState<Persona[] | null>(null)
   const [f, setF] = useState({ personaId: '', tipoPersonaId: '', fechaInicio: '' })
   const [ending, setEnding] = useState<Persona | null>(null)
   const [open, setOpen] = useState(false)
 
-  const load = (id: string) => { setMoradores(null); if (id) api.inmuebles.personas(+id).then(setMoradores).catch(e => { setMoradores([]); notify(errorMessage(e)) }) }
+  const todos = inmuebles.items ?? []
+  const actual = todos.find(i => i.id === sel) ?? null
+  const needle = q.trim().toLowerCase()
+  const lista = todos.filter(i =>
+    (!needle || `${i.torreBloque}-${i.numero} ${i.tipo} ${i.propietario ?? ''}`.toLowerCase().includes(needle)) &&
+    (filtro === 'todos' || (filtro === 'ocupados') === i.ocupado))
+  const libres = (personas.items ?? []).filter(p => p.activa && !p.vinculoVigente)
+
+  const load = (id: number | null) => {
+    setMoradores(null)
+    if (id !== null) api.inmuebles.personas(id).then(setMoradores).catch(e => { setMoradores([]); notify(errorMessage(e)) })
+  }
   useEffect(() => load(sel), [sel]) // eslint-disable-line react-hooks/exhaustive-deps
+  const refresh = () => { load(sel); personas.reload(); inmuebles.reload() }
+
+  const estado = (i: Inmueble) => (!i.activo ? ['Inactivo', 'amber'] : i.ocupado ? ['Ocupado', 'green'] : ['Disponible', 'neutral'])
 
   return <>
-    <Header kicker="ADMINISTRACIÓN · VÍNCULOS" title="Vinculaciones">
-      {sel && <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Vincular persona</button>}
-    </Header>
+    <Header kicker="ADMINISTRACIÓN · VÍNCULOS" title="Vinculaciones" />
     <ErrorLine message={inmuebles.error || personas.error} />
-    <div className="table-toolbar" style={{ marginBottom: 12 }}>
-      <select value={sel} onChange={e => setSel(e.target.value)} aria-label="Inmueble">
-        <option value="">Selecciona un inmueble…</option>
-        {(inmuebles.items ?? []).map(i => <option key={i.id} value={i.id}>{i.torreBloque}-{i.numero}</option>)}
-      </select>
+    <div className="split" data-selected={sel !== null ? 'true' : 'false'}>
+      <aside className="split-list">
+        <div className="search-field" style={{ maxWidth: 'none', marginBottom: 10 }}><Search size={16} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar inmueble…" aria-label="Buscar inmueble" /></div>
+        <div className="seg" role="group" aria-label="Ocupación" style={{ marginBottom: 10 }}>
+          {([['todos', 'Todos'], ['ocupados', 'Ocupados'], ['disponibles', 'Disponibles']] as const).map(([k, label]) =>
+            <button key={k} type="button" className={filtro === k ? 'on' : ''} onClick={() => setFiltro(k)}>{label}</button>)}
+        </div>
+        {inmuebles.items === null ? <Loading /> : <div className="pick-list tall" role="listbox" aria-label="Inmuebles">
+          {lista.length === 0 ? <p className="pick-empty">Sin resultados.</p> : lista.map(i => { const [txt, tone] = estado(i); return <button key={i.id} type="button" role="option" aria-selected={sel === i.id}
+            className={`pick-item ${sel === i.id ? 'on' : ''}`} onClick={() => setSel(i.id)}>
+            <span className="pick-text"><strong>{i.torreBloque}-{i.numero}</strong><small>{i.tipo} · Piso {i.piso}{i.propietario ? ` · ${i.propietario}` : ''}</small></span>
+            <Badge tone={tone}>{txt}</Badge>
+          </button> })}
+        </div>}
+      </aside>
+
+      <section className="split-detail">
+        {!actual ? <div className="empty-panel"><p>Elige un inmueble de la lista para ver y gestionar a sus personas.</p></div> : <>
+          <button type="button" className="back-link" onClick={() => setSel(null)}>← Todos los inmuebles</button>
+          <div className="panel detail-head">
+            <div>
+              <h3>{actual.torreBloque}-{actual.numero}</h3>
+              <p>{actual.tipo} · Piso {actual.piso}{actual.propietario ? ` · Propietario: ${actual.propietario}` : ''}</p>
+              <Badge tone={estado(actual)[1]}>{estado(actual)[0]}</Badge>
+            </div>
+            <button className="primary-btn" disabled={!actual.activo} title={actual.activo ? undefined : 'Un inmueble inactivo no admite nuevos vínculos'}
+              onClick={() => { setF({ personaId: '', tipoPersonaId: '', fechaInicio: '' }); setOpen(true) }}><Plus size={16} /> Vincular persona</button>
+          </div>
+          {moradores === null ? <Loading /> : moradores.length === 0
+            ? <div className="empty-panel"><p>Este inmueble no tiene personas vinculadas.</p></div>
+            : <Table head={['Persona', 'Tipo', 'Documento', 'Acciones']} foot={`${moradores.length} personas vinculadas`}>
+              {moradores.map(p => <tr key={p.id}>
+                <td>{p.nombres} {p.apellidos}</td><td>{p.tipoPersona}</td><td>{p.tipoDocumento} {p.numeroDocumento}</td>
+                <td><div className="btn-group"><button onClick={() => setEnding(p)}>Finalizar vínculo</button></div></td>
+              </tr>)}
+            </Table>}
+        </>}
+      </section>
     </div>
-    {!sel ? <div className="empty-panel"><p>Elige un inmueble para ver y gestionar a sus personas.</p></div>
-      : moradores === null ? <Loading />
-      : <Table head={['Persona', 'Tipo', 'Documento', 'Acciones']} foot={`${moradores.length} personas vinculadas`}>
-        {moradores.map(p => <tr key={p.id}><td>{p.nombres} {p.apellidos}</td><td>{p.tipoPersona}</td><td>{p.numeroDocumento}</td>
-          <td><button className="row-action" onClick={() => setEnding(p)}>Finalizar vínculo</button></td></tr>)}
-      </Table>}
-    {open && <FormModal title="Vincular persona" submitLabel="Vincular" onClose={() => setOpen(false)} onSubmit={async () => {
-      await api.inmuebles.vincular(+sel, { personaId: +f.personaId, tipoPersonaId: +f.tipoPersonaId, fechaInicio: f.fechaInicio || undefined })
-      setOpen(false); load(sel); notify('Persona vinculada')
-    }}>
-      <Select label="Persona" value={f.personaId} onChange={v => setF({ ...f, personaId: v })}>
-        {(personas.items ?? []).map(p => <option key={p.id} value={p.id}>{p.nombres} {p.apellidos}</option>)}
-      </Select>
-      <Select label="Tipo de vínculo" value={f.tipoPersonaId} onChange={v => setF({ ...f, tipoPersonaId: v })}>
-        {tiposPersona.items.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
-      </Select>
-      <label>Fecha de inicio<input type="date" value={f.fechaInicio} onChange={e => setF({ ...f, fechaInicio: e.target.value })} /></label>
+
+    {open && actual && <FormModal title={`Vincular persona a ${actual.torreBloque}-${actual.numero}`} submitLabel="Vincular" onClose={() => setOpen(false)}
+      description="Solo aparecen personas activas que aún no tienen un vínculo vigente." onSubmit={async () => {
+        if (!f.personaId) throw new Error('Elige una persona')
+        if (!f.tipoPersonaId) throw new Error('Elige el tipo de vínculo')
+        await api.inmuebles.vincular(actual.id, { personaId: +f.personaId, tipoPersonaId: +f.tipoPersonaId, fechaInicio: f.fechaInicio || undefined })
+        setOpen(false); refresh(); notify('Persona vinculada')
+      }}>
+      <PersonaPicker personas={libres} value={f.personaId} onChange={v => setF({ ...f, personaId: v })} />
+      <div style={{ gridColumn: '1 / -1' }}>
+        <span className="field-label">Tipo de vínculo<b>*</b></span>
+        <div className="radio-cards">
+          {tiposPersona.items.map(t => { const on = f.tipoPersonaId === String(t.id); return <label key={t.id} className={`radio-card ${on ? 'on' : ''}`}>
+            <input type="radio" name="tipoVinculo" checked={on} onChange={() => setF({ ...f, tipoPersonaId: String(t.id) })} />
+            <strong>{t.nombre}</strong><small>{t.descripcion}</small>
+          </label> })}
+        </div>
+      </div>
+      <label>Fecha de inicio (opcional, por defecto hoy)<input type="date" value={f.fechaInicio} onChange={e => setF({ ...f, fechaInicio: e.target.value })} /></label>
     </FormModal>}
-    {ending && <TextPrompt title={`Finalizar vínculo de ${ending.nombres}`} label="Motivo" submitLabel="Finalizar" onClose={() => setEnding(null)}
-      onSubmit={async m => { await api.personas.finalizarVinculo(ending.id, m); setEnding(null); load(sel); notify('Vínculo finalizado') }} />}
+
+    {ending && <TextPrompt title={`Finalizar vínculo de ${ending.nombres}`} label="Motivo" submitLabel="Finalizar vínculo"
+      description="Termina el vínculo actual con el inmueble. La persona sigue activa y puede vincularse de nuevo." reasons={['Se mudó', 'Venta del inmueble', 'Fin del contrato de arriendo']}
+      onClose={() => setEnding(null)} onSubmit={async motivo => { await api.personas.finalizarVinculo(ending.id, motivo); setEnding(null); refresh(); notify('Vínculo finalizado') }} />}
   </>
 }
 
@@ -228,6 +284,7 @@ export function VinculacionesPage({ notify }: { notify: Notify }) {
 
 export function VehiculosPage({ notify }: { notify: Notify }) {
   const { items, setItems, error } = useList<Vehiculo>(api.vehiculos.listar, [])
+  const view = useFilter(items, v => `${v.placa} ${v.marca} ${v.color} ${v.responsable} ${v.inmueble}`, v => v.activo)
   const personas = useList<Persona>(api.personas.listar, [])
   const inmuebles = useList<Inmueble>(api.inmuebles.listar, [])
   const tipos = useCatalog('TIPO_VEHICULO')
@@ -245,11 +302,12 @@ export function VehiculosPage({ notify }: { notify: Notify }) {
       <button className="primary-btn" onClick={openNew}><Plus size={16} /> Nuevo vehículo</button>
     </Header>
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Placa', 'Tipo', 'Marca / color', 'Responsable', 'Inmueble', 'Estado', 'Acciones']} foot={`${items.length} vehículos`}>
-      {items.map(v => <tr key={v.id}>
+    {view.bar}
+    {items === null ? <Loading /> : <Table head={['Placa', 'Tipo', 'Marca / color', 'Responsable', 'Inmueble', 'Estado', 'Acciones']} foot={view.foot('vehículos')}>
+      {(view.shown ?? []).map(v => <tr key={v.id}>
         <td><b>{v.placa}</b></td><td>{v.tipo}</td><td>{v.marca} · {v.color}</td><td>{v.responsable}</td><td>{v.inmueble}</td>
         <td><Badge tone={v.activo ? 'green' : 'amber'}>{v.activo ? 'Activo' : 'Inactivo'}</Badge></td>
-        <td>{v.activo && <><button className="row-action" onClick={() => openEdit(v)}>Editar</button> <button className="row-action" onClick={() => setOff(v)}>Desactivar</button></>}</td>
+        <td>{v.activo && <div className="btn-group"><button onClick={() => openEdit(v)}>Editar</button><button className="danger" onClick={() => setOff(v)}>Desactivar</button></div>}</td>
       </tr>)}
     </Table>}
     {form && <FormModal title={form.edit ? `Editar ${form.edit.placa}` : 'Nuevo vehículo'} submitLabel="Guardar" onClose={() => setForm(null)} onSubmit={async () => {
@@ -273,7 +331,7 @@ export function VehiculosPage({ notify }: { notify: Notify }) {
       <label>Marca<b>*</b><input required value={f.marca} onChange={e => setF({ ...f, marca: e.target.value })} /></label>
       <label>Color<b>*</b><input required value={f.color} onChange={e => setF({ ...f, color: e.target.value })} /></label>
     </FormModal>}
-    {off && <TextPrompt title={`Desactivar ${off.placa}`} label="Motivo" submitLabel="Desactivar" onClose={() => setOff(null)}
+    {off && <TextPrompt danger title={`Desactivar vehículo ${off.placa}`} label="Motivo" submitLabel="Desactivar vehículo" description="El vehículo queda inactivo; el registro se conserva." reasons={['Vendido', 'Cambio de placa', 'Ya no ingresa al conjunto']} onClose={() => setOff(null)}
       onSubmit={async m => { setItems(replaceIn(await api.vehiculos.desactivar(off.id, m))); setOff(null); notify('Vehículo desactivado') }} />}
   </>
 }
@@ -304,6 +362,7 @@ export function ConsultaPlacaPage() {
 
 export function ParqueaderosPage({ notify }: { notify: Notify }) {
   const { items, setItems, error } = useList<Parqueadero>(api.parqueaderos.listar, [])
+  const view = useFilter(items, p => `${p.torreBloque}-${p.numero} ${p.tipo} ${p.inmuebleAsociado ?? ''}`, p => p.activo)
   const inmuebles = useList<Inmueble>(api.inmuebles.listar, [])
   const tipos = useCatalog('TIPO_INMUEBLE')
   const [open, setOpen] = useState(false)
@@ -321,13 +380,14 @@ export function ParqueaderosPage({ notify }: { notify: Notify }) {
       <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Nuevo parqueadero</button>
     </Header>
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Parqueadero', 'Piso', 'Tipo', 'Asignado a', 'Estado', 'Acciones']} foot={`${items.length} parqueaderos`}>
-      {items.map(p => <tr key={p.id}>
+    {view.bar}
+    {items === null ? <Loading /> : <Table head={['Parqueadero', 'Piso', 'Tipo', 'Asignado a', 'Estado', 'Acciones']} foot={view.foot('parqueaderos')}>
+      {(view.shown ?? []).map(p => <tr key={p.id}>
         <td>{p.torreBloque}-{p.numero}</td><td>{p.piso}</td><td>{p.tipo}</td><td>{p.inmuebleAsociado ?? '—'}</td>
         <td><Badge tone={!p.activo ? 'amber' : p.disponible ? 'green' : 'neutral'}>{!p.activo ? 'Inactivo' : p.disponible ? 'Disponible' : 'Asignado'}</Badge></td>
-        <td>{p.activo && <>{p.disponible
-          ? <button className="row-action" onClick={() => { setInm(''); setAssign(p) }}>Asignar</button>
-          : <button className="row-action" onClick={() => liberar(p)}>Liberar</button>} <button className="row-action" onClick={() => setOff(p)}>Desactivar</button></>}</td>
+        <td>{p.activo && <div className="btn-group">{p.disponible
+          ? <button onClick={() => { setInm(''); setAssign(p) }}>Asignar</button>
+          : <button onClick={() => liberar(p)}>Liberar</button>}<button className="danger" onClick={() => setOff(p)}>Desactivar</button></div>}</td>
       </tr>)}
     </Table>}
     {open && <FormModal title="Nuevo parqueadero" submitLabel="Guardar" onClose={() => setOpen(false)} onSubmit={async () => {
@@ -344,7 +404,7 @@ export function ParqueaderosPage({ notify }: { notify: Notify }) {
     }}>
       <Select label="Inmueble" value={inm} onChange={setInm}>{(inmuebles.items ?? []).map(i => <option key={i.id} value={i.id}>{i.torreBloque}-{i.numero}</option>)}</Select>
     </FormModal>}
-    {off && <TextPrompt title={`Desactivar ${off.torreBloque}-${off.numero}`} label="Motivo" submitLabel="Desactivar" onClose={() => setOff(null)}
+    {off && <TextPrompt danger title={`Desactivar parqueadero ${off.torreBloque}-${off.numero}`} label="Motivo" submitLabel="Desactivar parqueadero" description="No podrá asignarse mientras esté inactivo." reasons={['Fuera de servicio', 'En reparación', 'Error de registro']} onClose={() => setOff(null)}
       onSubmit={async m => { setItems(replaceIn(await api.parqueaderos.desactivar(off.id, m))); setOff(null); notify('Parqueadero desactivado') }} />}
   </>
 }
@@ -359,8 +419,12 @@ export function CorrespondenciaPage({ notify, isGuard }: { notify: Notify; isGua
   const { items, setItems, error } = useList<Correspondencia>(
     () => (isGuard ? api.correspondencia.listar(filtro ? +filtro : undefined) : api.correspondencia.mias()), [isGuard, filtro])
   const tipos = useCatalog('TIPO_CORRESPONDENCIA')
+  // Directorio del vigilante: inmuebles activos con sus residentes (evita escribir ids).
+  const dir = useList<DirectorioInmueble>(isGuard ? api.accesos.inmuebles : async () => [], [isGuard])
+  const residentes = (dir.items ?? []).flatMap(i => i.residentes.map(r => ({ id: r.id, texto: `${r.nombre} · ${i.torreBloque}-${i.numero}` })))
   const [open, setOpen] = useState(false)
   const [f, setF] = useState({ inmuebleId: '', personaId: '', tipoId: '', remitente: '', descripcion: '' })
+  const inmuebleSel = (dir.items ?? []).find(i => String(i.id) === f.inmuebleId)
   const [deliver, setDeliver] = useState<Correspondencia | null>(null)
   const [d, setD] = useState({ nombreRecibe: '', documentoRecibe: '' })
 
@@ -369,22 +433,22 @@ export function CorrespondenciaPage({ notify, isGuard }: { notify: Notify; isGua
       {isGuard && <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Registrar</button>}
     </Header>
     {isGuard && <div className="table-toolbar" style={{ marginBottom: 12 }}>
-      <div className="search-field"><Search size={16} /><input type="number" value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="Filtrar por ID de persona…" /></div>
+      <select value={filtro} onChange={e => setFiltro(e.target.value)} aria-label="Destinatario"><option value="">Todos los destinatarios</option>{residentes.map(r => <option key={r.id} value={r.id}>{r.texto}</option>)}</select>
     </div>}
     <ErrorLine message={error} />
     {items === null ? <Loading /> : <Table head={['Remitente', 'Destinatario', 'Recepción', 'Tipo', 'Estado', ...(isGuard ? ['Acciones'] : [])]} foot={`${items.length} registros`}>
       {items.map(c => <tr key={c.id}>
         <td>{c.remitente}</td><td>{c.destinatario ?? 'Inmueble'} · {c.inmueble}</td><td>{fecha(c.fechaRecepcion)}</td><td>{c.tipo}</td>
         <td><Badge tone={corrTone(c.estado)}>{c.estado}</Badge></td>
-        {isGuard && <td>{!c.fechaEntrega && <button className="row-action" onClick={() => { setD({ nombreRecibe: '', documentoRecibe: '' }); setDeliver(c) }}>Entregar</button>}</td>}
+        {isGuard && <td>{!c.fechaEntrega && <div className="btn-group"><button onClick={() => { setD({ nombreRecibe: '', documentoRecibe: '' }); setDeliver(c) }}>Entregar</button></div>}</td>}
       </tr>)}
     </Table>}
     {open && <FormModal title="Registrar correspondencia" submitLabel="Registrar" onClose={() => setOpen(false)} onSubmit={async () => {
       const c = await api.correspondencia.crear({ inmuebleId: +f.inmuebleId, personaId: f.personaId ? +f.personaId : undefined, tipoId: +f.tipoId, remitente: f.remitente, descripcion: f.descripcion || undefined })
       setItems(l => [c, ...(l ?? [])]); setOpen(false); notify('Correspondencia registrada')
     }}>
-      <label>ID del inmueble<b>*</b><input type="number" min={1} required value={f.inmuebleId} onChange={e => setF({ ...f, inmuebleId: e.target.value })} /></label>
-      <label>ID de la persona (opcional)<input type="number" min={1} value={f.personaId} onChange={e => setF({ ...f, personaId: e.target.value })} /></label>
+      <Select label="Inmueble" value={f.inmuebleId} onChange={v => setF({ ...f, inmuebleId: v, personaId: '' })}>{(dir.items ?? []).map(i => <option key={i.id} value={i.id}>{i.torreBloque}-{i.numero}</option>)}</Select>
+      <Select label="Destinatario" required={false} value={f.personaId} onChange={v => setF({ ...f, personaId: v })}>{(inmuebleSel?.residentes ?? []).map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}</Select>
       <Select label="Tipo" value={f.tipoId} onChange={v => setF({ ...f, tipoId: v })}>{options(tipos)}</Select>
       <label>Remitente<b>*</b><input required value={f.remitente} onChange={e => setF({ ...f, remitente: e.target.value })} /></label>
       <label style={{ gridColumn: '1 / -1' }}>Descripción<input value={f.descripcion} onChange={e => setF({ ...f, descripcion: e.target.value })} /></label>
@@ -443,17 +507,17 @@ export function PqrsListPage({ notify, admin }: { notify: Notify; admin: boolean
         <td>{fecha(p.fechaRadicacion)}</td>
         <td><Badge tone={pqrsTone(p)}>{p.estado}{p.vencida ? ' · vencida' : ''}</Badge></td>
         <td>{p.respuesta ?? '—'}</td>
-        {admin && <td>{!p.respuesta && <button className="row-action" onClick={() => setAttend(p)}>Responder</button>}</td>}
+        {admin && <td>{!p.respuesta && <div className="btn-group"><button onClick={() => setAttend(p)}>Responder</button></div>}</td>}
       </tr>)}
     </Table>}
-    {attend && <TextPrompt title={`Responder: ${attend.asunto}`} label="Respuesta" area submitLabel="Enviar respuesta" onClose={() => setAttend(null)}
+    {attend && <TextPrompt title={`Responder: ${attend.asunto}`} label="Respuesta" area submitLabel="Enviar respuesta" description={`${attend.solicitante} recibirá una notificación con tu respuesta.`} onClose={() => setAttend(null)}
       onSubmit={async r => { setItems(replaceIn(await api.pqrs.atender(attend.id, r))); setAttend(null); notify('PQRS respondida') }} />}
   </>
 }
 
 /* ───────────── Mi perfil (persona vinculada: /api/perfil) ───────────── */
 
-export function PerfilPage({ me, notify }: { me: Me; notify: Notify }) {
+export function PerfilPage({ me, notify, children }: { me: Me; notify: Notify; children?: React.ReactNode }) {
   const esPersona = me.rol === 'PERSONA_VINCULADA'
   const [persona, setPersona] = useState<Persona | null>(null)
   const [f, setF] = useState<PersonaForm>(emptyPersona)
@@ -472,18 +536,39 @@ export function PerfilPage({ me, notify }: { me: Me; notify: Notify }) {
     setBusy(false)
   }
 
+  const rolLabel = me.rol === 'ADMINISTRADOR' ? 'Administrador' : me.rol === 'VIGILANTE' ? 'Vigilante' : 'Persona vinculada'
+  const nombre = esPersona && persona ? `${persona.nombres} ${persona.apellidos}` : me.correo.split('@')[0]
+  const iniciales = (esPersona && persona ? `${persona.nombres[0] ?? ''}${persona.apellidos[0] ?? ''}` : me.correo.slice(0, 2)).toUpperCase()
+  const tiles: { icon: React.ReactNode; label: string; value: string }[] = [
+    { icon: <Shield size={16} />, label: 'Rol', value: rolLabel },
+    { icon: <Mail size={16} />, label: 'Correo de acceso', value: me.correo },
+    ...(esPersona && persona ? [
+      { icon: <IdCard size={16} />, label: 'Documento', value: `${persona.tipoDocumento} ${persona.numeroDocumento}` },
+      { icon: <UserRound size={16} />, label: 'Tipo de persona', value: persona.tipoPersona },
+      { icon: <Home size={16} />, label: 'Inmueble', value: persona.vinculoVigente ? `Inmueble #${persona.inmuebleId}` : 'Sin vínculo vigente' },
+    ] : []),
+  ]
+
   return <>
     <Header kicker="TRANSVERSAL · CUENTA" title="Mi perfil" />
-    <div className="profile-card" style={{ padding: 20 }}>
-      <h3>{esPersona && persona ? `${persona.nombres} ${persona.apellidos}` : me.correo}</h3>
-      <p>{me.correo} · {me.rol === 'ADMINISTRADOR' ? 'Administrador' : me.rol === 'VIGILANTE' ? 'Vigilante' : 'Persona vinculada'}</p>
-      {esPersona && (persona === null && !error ? <p>Cargando…</p> : persona && <form onSubmit={submit}>
-        <div className="fields-grid"><PersonaFields f={f} setF={setF} lockCore /></div>
-        <ErrorLine message={error} />
-        <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Guardar cambios</button></div>
-      </form>)}
-      {esPersona && persona === null && <ErrorLine message={error} />}
-      {!esPersona && <p style={{ fontSize: 13 }}>Esta cuenta no tiene una persona asociada para editar. Puedes cambiar tu contraseña más abajo.</p>}
+    <section className="pf-hero">
+      <span className="pf-avatar">{iniciales}</span>
+      <div className="pf-id"><h3>{nombre}</h3><p>{me.correo}</p></div>
+      <div className="pf-tags"><Badge tone="neutral">{rolLabel}</Badge>{esPersona && persona && <Badge tone={persona.activa ? 'green' : 'amber'}>{persona.activa ? 'Activa' : 'Inactiva'}</Badge>}</div>
+    </section>
+    <section className="pf-tiles">{tiles.map(t => <div className="pf-tile" key={t.label}><span className="pf-tile-icon">{t.icon}</span><small>{t.label}</small><strong>{t.value}</strong></div>)}</section>
+    <div className="pf-grid">
+      <section className="pf-module">
+        <div className="pf-module-head"><UserRound size={16} /><h4>Datos personales</h4></div>
+        {esPersona && (persona === null && !error ? <p>Cargando…</p> : persona && <form onSubmit={submit}>
+          <div className="fields-grid"><PersonaFields f={f} setF={setF} lockCore /></div>
+          <ErrorLine message={error} />
+          <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Guardar cambios</button></div>
+        </form>)}
+        {esPersona && persona === null && <ErrorLine message={error} />}
+        {!esPersona && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Esta cuenta no tiene una persona asociada para editar. Puedes cambiar tu contraseña en el módulo de seguridad.</p>}
+      </section>
+      {children}
     </div>
   </>
 }

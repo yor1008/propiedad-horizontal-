@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
+import TableLabels from './table-labels'
 import { api, errorMessage, token, type Me } from '@/lib/api'
 import {
   Activity, Bell, Building2, CalendarDays, Car, Check, ChevronDown, ClipboardList, Clock3, DoorOpen,
-  FileText, Home, KeyRound, LogOut, Menu, Package, ParkingSquare, Search, Shield, UserRound, Users, Wrench,
+  FileText, Home, KeyRound, Settings, LogOut, Menu, Package, ParkingSquare, Search, Shield, UserRound, Users, Wrench,
 } from 'lucide-react'
 
 const roles = {
@@ -22,6 +23,8 @@ type Profile = { name: string; role: string; email: string; initials: string }
 // Las vistas conectadas a la API se cargan bajo demanda (menos JS inicial).
 const CuentasPage = dynamic(() => import('./api-pages').then(m => m.CuentasPage))
 const CatalogosPage = dynamic(() => import('./api-pages').then(m => m.CatalogosPage))
+const ConfiguracionPage = dynamic(() => import('./api-pages').then(m => m.ConfiguracionPage))
+const OlvideContrasena = dynamic(() => import('./api-pages').then(m => m.OlvideContrasena))
 const CambiarContrasena = dynamic(() => import('./api-pages').then(m => m.CambiarContrasena))
 const ZonasPage = dynamic(() => import('./reservas').then(m => m.ZonasPage))
 const ReservarPage = dynamic(() => import('./reservas').then(m => m.ReservarPage))
@@ -96,7 +99,7 @@ const nav: Record<Module, NavItem[]> = {
   Administración: [
     { label: 'Personas', icon: Users, roles: ['admin'] }, { label: 'Mi inmueble', icon: Home, roles: ['owner'] },
     { label: 'Inmuebles', icon: Building2, roles: ['admin'] }, { label: 'Vinculaciones', icon: UserRound, roles: ['admin'] },
-    { label: 'Cuentas', icon: KeyRound, roles: ['admin'] }, { label: 'Catálogos', icon: ClipboardList, roles: ['admin'] },
+    { label: 'Cuentas', icon: KeyRound, roles: ['admin'] }, { label: 'Catálogos', icon: ClipboardList, roles: ['admin'] }, { label: 'Configuración', icon: Settings, roles: ['admin'] },
     { label: 'Vehículos', icon: Car, roles: ['admin'] }, { label: 'Consultar por placa', icon: Search, roles: ['guard'] }, { label: 'Parqueaderos', icon: ParkingSquare, roles: ['admin'] },
   ],
   Operaciones: [
@@ -135,10 +138,19 @@ export default function Page() {
       setBooting(true)
       api.me().then(m => { setMe(m); land(rolesFromMe(m)) }).catch(() => token.clear()).finally(() => setBooting(false))
     }
-    const onUnauthorized = () => { setMe(null); setModule(null); setToast('Tu sesión expiró, inicia sesión de nuevo') }
+    const onUnauthorized = (e: Event) => { setMe(null); setModule(null); setToast(String((e as CustomEvent).detail || 'Tu sesión expiró, inicia sesión de nuevo')) }
     window.addEventListener('ph:unauthorized', onUnauthorized)
     return () => window.removeEventListener('ph:unauthorized', onUnauthorized)
   }, [])
+
+  // Cierra la sesión justo cuando vence el token (aunque la pestaña esté quieta).
+  useEffect(() => {
+    if (!me) return
+    const left = token.remainingMs()
+    if (left === null) return
+    const t = setTimeout(() => { token.clear(); window.dispatchEvent(new CustomEvent('ph:unauthorized', { detail: 'Tu sesión expiró, inicia sesión de nuevo' })) }, Math.max(left, 0))
+    return () => clearTimeout(t)
+  }, [me])
 
   // Número de la campana y del menú: solo existe para personas vinculadas; se refresca cada minuto.
   useEffect(() => {
@@ -150,8 +162,8 @@ export default function Page() {
   }, [esPersona])
 
   async function login(correo: string, contrasena: string) {
-    const { accessToken } = await api.login(correo, contrasena)
-    token.set(accessToken)
+    const { accessToken, expiresIn } = await api.login(correo, contrasena)
+    token.set(accessToken, expiresIn)
     const m = await api.me()
     setMe(m); land(rolesFromMe(m))
     flash('Sesión iniciada')
@@ -182,6 +194,8 @@ export default function Page() {
     <nav>{sec.items.map(item => { const Icon = item.icon; return <button key={item.label} className={activeModule === sec.module && page === item.label ? 'active' : ''} onClick={() => selectPage(sec.module, item.label)}><Icon size={17} /><span>{item.label}</span>{item.label === 'Notificaciones' && unread > 0 && <b>{unread}</b>}</button> })}</nav>
   </div> }
   return <div className="app-shell">
+    <TableLabels />
+    {mobileNav && <div className="sidebar-backdrop" onClick={() => setMobileNav(false)} aria-hidden="true" />}
     <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
       <div className="brand"><span className="brand-mark"><Building2 size={18} /></span><div><strong>Torres del Parque</strong><small>Gestión residencial</small></div></div>
       <div className="sidebar-scroll">{sections.filter(sec => sec.module !== 'Transversal').map(renderSection)}</div>
@@ -191,7 +205,7 @@ export default function Page() {
     <main className="main-area">
       <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label="Abrir menú"><Menu /></button><div><p className="eyebrow">{activeModule} / {page}</p><h1>{page}</h1></div><div className="top-actions">{esPersona && <button className="notification" onClick={() => selectPage('Transversal', 'Notificaciones')} aria-label="Notificaciones"><Bell size={19} />{unread > 0 && <i>{unread}</i>}</button>}<div className="user-chip"><span>{currentRole!.initials}</span><div><strong>{currentRole!.name}</strong><small>{currentRole!.role}</small></div><ChevronDown size={15} /></div></div></header>
       <div className="content">
-        {page === 'Personas' ? <PersonasPage notify={flash} /> : page === 'Inmuebles' ? <InmueblesPage notify={flash} /> : page === 'Vinculaciones' ? <VinculacionesPage notify={flash} /> : page === 'Vehículos' ? <VehiculosPage notify={flash} /> : page === 'Consultar por placa' ? <ConsultaPlacaPage /> : page === 'Parqueaderos' ? <ParqueaderosPage notify={flash} /> : page === 'Correspondencia' ? <CorrespondenciaPage notify={flash} isGuard={user === 'guard'} /> : page === 'Radicar PQRS' ? <RadicarPqrsPage notify={flash} onDone={() => setPage('Mis PQRS')} /> : page === 'Mis PQRS' ? <PqrsListPage notify={flash} admin={false} /> : page === 'Atender PQRS' ? <PqrsListPage notify={flash} admin /> : page === 'Zonas comunes' ? <ZonasPage notify={flash} /> : page === 'Reservar zona' ? <ReservarPage notify={flash} onDone={() => setPage('Mis reservas')} /> : page === 'Mis reservas' ? <ReservasPage notify={flash} admin={false} /> : page === 'Gestionar reservas' ? <ReservasPage notify={flash} admin /> : page === 'Preregistros' ? <PreRegistrosPage notify={flash} /> : page === 'Autorizar ingreso' ? <AutorizarIngresoPage notify={flash} /> : page === 'Ingreso sin preregistro' ? <IngresoSinPreregistroPage notify={flash} /> : page === 'Parqueadero visitante' ? <AccesosDentroPage notify={flash} mode="parqueadero" /> : page === 'Registrar salida' ? <AccesosDentroPage notify={flash} mode="salida" /> : page === 'Visitantes dentro' ? <AccesosDentroPage notify={flash} mode="ver" /> : page === 'Historial de accesos' ? <HistorialPage /> : page === 'Notificaciones' ? <NotificacionesPage notify={flash} onUnread={setUnread} /> : page === 'Mi inmueble' ? <MiInmueblePage /> : page === 'Mantenimientos' ? <MantenimientosPage notify={flash} /> : page === 'Cuentas' ? <CuentasPage notify={flash} myAccountId={me!.cuentaId} /> : page === 'Catálogos' ? <CatalogosPage notify={flash} isAdmin={user === 'admin'} /> : page === 'Mi perfil' ? <><PerfilPage me={me!} notify={flash} /><CambiarContrasena notify={flash} /></> : null}
+        {page === 'Personas' ? <PersonasPage notify={flash} /> : page === 'Inmuebles' ? <InmueblesPage notify={flash} /> : page === 'Vinculaciones' ? <VinculacionesPage notify={flash} /> : page === 'Vehículos' ? <VehiculosPage notify={flash} /> : page === 'Consultar por placa' ? <ConsultaPlacaPage /> : page === 'Parqueaderos' ? <ParqueaderosPage notify={flash} /> : page === 'Correspondencia' ? <CorrespondenciaPage notify={flash} isGuard={user === 'guard'} /> : page === 'Radicar PQRS' ? <RadicarPqrsPage notify={flash} onDone={() => setPage('Mis PQRS')} /> : page === 'Mis PQRS' ? <PqrsListPage notify={flash} admin={false} /> : page === 'Atender PQRS' ? <PqrsListPage notify={flash} admin /> : page === 'Zonas comunes' ? <ZonasPage notify={flash} /> : page === 'Reservar zona' ? <ReservarPage notify={flash} onDone={() => setPage('Mis reservas')} /> : page === 'Mis reservas' ? <ReservasPage notify={flash} admin={false} /> : page === 'Gestionar reservas' ? <ReservasPage notify={flash} admin /> : page === 'Preregistros' ? <PreRegistrosPage notify={flash} /> : page === 'Autorizar ingreso' ? <AutorizarIngresoPage notify={flash} /> : page === 'Ingreso sin preregistro' ? <IngresoSinPreregistroPage notify={flash} /> : page === 'Parqueadero visitante' ? <AccesosDentroPage notify={flash} mode="parqueadero" /> : page === 'Registrar salida' ? <AccesosDentroPage notify={flash} mode="salida" /> : page === 'Visitantes dentro' ? <AccesosDentroPage notify={flash} mode="ver" /> : page === 'Historial de accesos' ? <HistorialPage /> : page === 'Notificaciones' ? <NotificacionesPage notify={flash} onUnread={setUnread} /> : page === 'Mi inmueble' ? <MiInmueblePage /> : page === 'Mantenimientos' ? <MantenimientosPage notify={flash} /> : page === 'Cuentas' ? <CuentasPage notify={flash} myAccountId={me!.cuentaId} /> : page === 'Catálogos' ? <CatalogosPage notify={flash} isAdmin={user === 'admin'} /> : page === 'Configuración' ? <ConfiguracionPage notify={flash} /> : page === 'Mi perfil' ? <PerfilPage me={me!} notify={flash}><CambiarContrasena notify={flash} /></PerfilPage> : null}
       </div>
     </main>
     {toast && <div className="toast"><Check size={17} /> {toast}</div>}
@@ -201,6 +215,7 @@ export default function Page() {
 function Welcome({ onLogin }: { onLogin: (correo: string, contrasena: string) => Promise<void> }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [olvide, setOlvide] = useState(false)
   // Se leen los valores del DOM (no del estado): evita enviar vacío o desactualizado si el navegador
   // autocompleta los campos antes de que la página prerenderizada termine de cargar.
   async function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -213,14 +228,15 @@ function Welcome({ onLogin }: { onLogin: (correo: string, contrasena: string) =>
   return <main className="welcome"><img className="welcome-art" src="/login-hero.webp" alt="" aria-hidden="true" fetchPriority="high" decoding="async" /><div className="welcome-inner">
     <div className="brand centered"><span className="brand-mark"><Building2 size={20} /></span><div><strong>Torres del Parque</strong><small>Gestión residencial</small></div></div>
     <div className="welcome-copy"><span className="kicker">PLATAFORMA INTEGRAL</span><h1>Todo el conjunto,<br /><em>en un solo lugar.</em></h1><p>Administra, opera y protege tu comunidad residencial con información clara y decisiones oportunas.</p></div>
-    <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
+    {olvide ? <OlvideContrasena onBack={() => setOlvide(false)} /> : <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
       <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
         <label>Correo<b>*</b><input name="correo" type="email" required autoComplete="username" /></label>
         <label>Contraseña<b>*</b><input name="contrasena" type="password" required autoComplete="current-password" /></label>
       </div>
       {error && <p role="alert" style={{ color: '#b42318', fontSize: 13 }}>{error}</p>}
-      <div className="form-actions"><button className="primary-btn" disabled={busy}><KeyRound size={16} /> {busy ? 'Ingresando…' : 'Ingresar'}</button></div>
-    </form>
+      <div className="form-actions" style={{ justifyContent: 'center' }}><button className="primary-btn" disabled={busy}><KeyRound size={16} /> {busy ? 'Ingresando…' : 'Ingresar'}</button></div>
+      <div style={{ textAlign: 'center', marginTop: 12 }}><button type="button" onClick={() => setOlvide(true)} style={{ background: 'none', border: 0, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}>¿Olvidaste tu contraseña?</button></div>
+    </form>}
   </div></main>
 }
 

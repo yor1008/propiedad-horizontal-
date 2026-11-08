@@ -112,6 +112,10 @@ export type MiInmueble = {
   id: number; torreBloque: string; numero: string; piso: number; tipo: string; ocupado: boolean; activo: boolean; parqueaderos: Parqueadero[]
 }
 
+export type EventoNotificacion = 'CORRESPONDENCIA_RECIBIDA' | 'INGRESO_VISITANTE' | 'CAMBIO_ESTADO_RESERVA' | 'RESPUESTA_PQRS'
+export type ConfigGeneral = { maxVehiculosPorInmueble: number; plazoRespuestaPqrsDias: number }
+export type ConfigNotificacion = { evento: EventoNotificacion; activa: boolean; enviarCorreo: boolean }
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public detalles: string[] = []) {
     super(message)
@@ -141,18 +145,44 @@ export function invalidate(prefix = '') {
 function dropCatalogs<T>(r: T): T { invalidate('cat:'); return r }
 
 const TOKEN_KEY = 'ph_token'
+const EXP_KEY = 'ph_token_exp'
 
+// El token vive en sessionStorage junto con su vencimiento (login.expiresIn, en segundos).
+// Si ya venció, get() lo descarta y devuelve null, así la app vuelve al inicio de sesión.
 export const token = {
   get(): string | null {
-    try { return sessionStorage.getItem(TOKEN_KEY) } catch { return null }
+    try {
+      const t = sessionStorage.getItem(TOKEN_KEY)
+      if (!t) return null
+      const exp = Number(sessionStorage.getItem(EXP_KEY))
+      if (exp && Date.now() >= exp) { token.clear(); return null }
+      return t
+    } catch { return null }
   },
-  set(value: string) {
-    try { sessionStorage.setItem(TOKEN_KEY, value) } catch {}
+  set(value: string, expiresInSeconds?: number) {
+    try {
+      sessionStorage.setItem(TOKEN_KEY, value)
+      if (expiresInSeconds) sessionStorage.setItem(EXP_KEY, String(Date.now() + expiresInSeconds * 1000))
+      else sessionStorage.removeItem(EXP_KEY)
+    } catch {}
+  },
+  /** Milisegundos que le quedan al token (null si no hay vencimiento conocido). */
+  remainingMs(): number | null {
+    try {
+      const exp = Number(sessionStorage.getItem(EXP_KEY))
+      return exp ? exp - Date.now() : null
+    } catch { return null }
   },
   clear() {
-    try { sessionStorage.removeItem(TOKEN_KEY) } catch {}
+    try { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(EXP_KEY) } catch {}
     invalidate()
   },
+}
+
+// Avisa a la app que debe volver al inicio de sesión.
+function sessionLost(message: string) {
+  token.clear()
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('ph:unauthorized', { detail: message }))
 }
 
 type Options = { method?: string; body?: unknown; auth?: boolean }
@@ -161,23 +191,30 @@ async function request<T>(path: string, { method = 'GET', body, auth = true }: O
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const t = token.get()
+  if (auth && !t) {
+    sessionLost('Tu sesión expiró, inicia sesión de nuevo')
+    throw new ApiError(401, 'Sesión no iniciada')
+  }
   if (auth && t) headers.Authorization = `Bearer ${t}`
 
   let res: Response
   try {
     res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
   } catch {
+    if (auth) sessionLost('No se pudo conectar con el servidor, inicia sesión de nuevo')
     throw new ApiError(0, 'No se pudo conectar con el servidor')
+  }
+  // Con el backend apagado el proxy de Next responde 500/502/503/504 sin cuerpo de la API.
+  if (auth && [500, 502, 503, 504].includes(res.status) && !res.headers.get('content-type')?.includes('json')) {
+    sessionLost('El servidor no está disponible, inicia sesión de nuevo')
+    throw new ApiError(res.status, 'El servidor no está disponible')
   }
 
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => null)
   if (!res.ok) {
     // 401 fuera del login = sesión vencida o inválida
-    if (res.status === 401 && auth && typeof window !== 'undefined') {
-      token.clear()
-      window.dispatchEvent(new Event('ph:unauthorized'))
-    }
+    if (res.status === 401 && auth) sessionLost('Tu sesión expiró, inicia sesión de nuevo')
     throw new ApiError(res.status, data?.mensaje ?? 'Error inesperado', data?.detalles ?? [])
   }
   return data as T
@@ -189,6 +226,19 @@ export const api = {
   me: () => request<Me>('/api/auth/me'),
   cambiarContrasena: (actual: string, nueva: string) =>
     request<void>('/api/auth/cambiar-contrasena', { method: 'POST', body: { actual, nueva } }),
+
+  olvideContrasena: (correo: string) =>
+    request<void>('/api/auth/olvide-contrasena', { method: 'POST', body: { correo }, auth: false }),
+  restablecerContrasena: (token: string, nueva: string) =>
+    request<void>('/api/auth/restablecer-contrasena', { method: 'POST', body: { token, nueva }, auth: false }),
+
+  configuracion: {
+    general: () => request<ConfigGeneral>('/api/configuracion/general'),
+    guardarGeneral: (c: ConfigGeneral) => request<ConfigGeneral>('/api/configuracion/general', { method: 'PUT', body: c }),
+    notificaciones: () => request<ConfigNotificacion[]>('/api/configuracion/notificaciones'),
+    guardarNotificacion: (evento: EventoNotificacion, c: { activa: boolean; enviarCorreo: boolean }) =>
+      request<ConfigNotificacion>(`/api/configuracion/notificaciones/${evento}`, { method: 'PUT', body: c }),
+  },
 
   cuentas: {
     listar: () => request<Cuenta[]>('/api/cuentas'),

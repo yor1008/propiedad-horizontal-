@@ -37,7 +37,7 @@ export function PreRegistrosPage({ notify }: { notify: Notify }) {
         <td>{p.tipoVigencia === 'PERMANENTE' ? 'Permanente' : dia(p.fechaPrevista)}</td>
         <td>{p.placaVehiculo ? `${p.placaVehiculo}${p.tipoVehiculo ? ` · ${p.tipoVehiculo}` : ''}` : '—'}</td>
         <td><Badge tone={p.vigente ? 'green' : p.usado ? 'neutral' : 'amber'}>{!p.activo ? 'Cancelado' : p.usado ? 'Usado' : p.vigente ? 'Vigente' : 'Programado'}</Badge></td>
-        <td>{p.activo && !p.usado && <button className="row-action" onClick={() => cancelar(p)}>Cancelar</button>}</td>
+        <td>{p.activo && !p.usado && <div className="btn-group"><button className="danger" onClick={() => cancelar(p)}>Cancelar</button></div>}</td>
       </tr>)}
     </Table>}
     {open && <NuevoPreRegistro onClose={() => setOpen(false)} onCreated={p => { setItems(l => [p, ...(l ?? [])]); setOpen(false); notify('Pre-registro creado') }} />}
@@ -97,7 +97,7 @@ export function AutorizarIngresoPage({ notify }: { notify: Notify }) {
         {results.map(p => <tr key={p.id}>
           <td>{p.visitante}</td><td>{p.residente}</td><td>{p.inmueble}</td>
           <td>{p.tipoVigencia === 'PERMANENTE' ? 'Permanente' : dia(p.fechaPrevista)}</td><td>{p.placaVehiculo ?? '—'}</td>
-          <td><button className="row-action" onClick={() => autorizar(p)}>Autorizar ingreso</button></td>
+          <td><div className="btn-group"><button onClick={() => autorizar(p)}>Autorizar ingreso</button></div></td>
         </tr>)}
       </Table>)}
   </>
@@ -186,11 +186,11 @@ export function AccesosDentroPage({ notify, mode }: { notify: Notify; mode: 'ver
       : <Table head={['Visitante', 'Documento', 'Inmueble', 'Entrada', 'Vehículo', 'Parqueadero', ...(mode !== 'ver' ? ['Acciones'] : [])]} foot={`${items.length} visitantes dentro`}>
         {items.map(v => <tr key={v.id}>
           <td>{v.visitante}</td><td>{v.numeroDocumento}</td><td>{v.inmueble}</td><td>{fecha(v.fechaHoraEntrada)}</td><td>{v.tipoVehiculo ?? '—'}</td><td>{v.parqueadero ?? '—'}</td>
-          {mode === 'salida' && <td><button className="row-action" onClick={() => salida(v)}>Registrar salida</button></td>}
+          {mode === 'salida' && <td><div className="btn-group"><button onClick={() => salida(v)}>Registrar salida</button></div></td>}
           {mode === 'parqueadero' && <td>{v.parqueadero ? '—' : <>
             <select value={pick[v.id] ?? ''} onChange={e => setPick({ ...pick, [v.id]: e.target.value })} aria-label="Parqueadero">
               <option value="">Parqueadero…</option>{(libres.items ?? []).map(p => <option key={p.id} value={p.id}>{p.torreBloque}-{p.numero}</option>)}</select>{' '}
-            <button className="row-action" disabled={!pick[v.id]} onClick={() => asignar(v)}>Asignar</button></>}</td>}
+            <span className="btn-group"><button disabled={!pick[v.id]} onClick={() => asignar(v)}>Asignar</button></span></>}</td>}
         </tr>)}
       </Table>}
   </>
