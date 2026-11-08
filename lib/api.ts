@@ -82,6 +82,36 @@ export type NuevoMantenimiento = {
 }
 export type EdicionMantenimiento = { descripcion: string; fechaHoraInicio: string; fechaHoraFin?: string; responsable?: string }
 
+export type TipoVigencia = 'FECHA_ESPECIFICA' | 'PERMANENTE'
+export type PreRegistro = {
+  id: number; visitanteId: number; visitante: string; numeroDocumento: string; personaId: number; residente: string
+  inmuebleId: number; inmueble: string; tipoVigencia: TipoVigencia; fechaPrevista: string | null; motivo: string | null
+  placaVehiculo: string | null; tipoVehiculo: string | null; activo: boolean; usado: boolean; vigente: boolean; fechaRegistro: string
+}
+export type NuevoPreRegistro = {
+  nombreCompleto: string; numeroDocumento: string; tipoVigencia: TipoVigencia; fechaPrevista?: string
+  motivo?: string; placaVehiculo?: string; tipoVehiculoId?: number
+}
+export type RespuestaResidente = 'APRUEBA' | 'NO_APRUEBA' | 'NO_CONTESTA'
+export type Visita = {
+  id: number; visitanteId: number; visitante: string; numeroDocumento: string; inmuebleId: number; inmueble: string
+  conPreRegistro: boolean; preRegistroId: number | null; residenteContactadoId: number | null; residenteContactado: string | null
+  respuestaResidente: string | null; ingresoAutorizado: boolean; motivoNegacion: string | null; tipoVehiculo: string | null
+  parqueaderoId: number | null; parqueadero: string | null; fechaHoraLlegada: string; fechaHoraEntrada: string | null
+  fechaHoraSalida: string | null; dentro: boolean; estado: 'Dentro' | 'Salio' | 'Negado'
+}
+export type IngresoSinPreRegistro = {
+  nombreCompleto: string; numeroDocumento: string; inmuebleId: number; residenteContactadoId: number
+  respuestaResidente: RespuestaResidente; motivoNegacion?: string; tipoVehiculoId?: number
+}
+export type DirectorioInmueble = {
+  id: number; torreBloque: string; numero: string; residentes: { id: number; nombre: string; telefono: string | null }[]
+}
+export type Notificacion = { id: number; evento: string; mensaje: string; fechaHora: string; leida: boolean }
+export type MiInmueble = {
+  id: number; torreBloque: string; numero: string; piso: number; tipo: string; ocupado: boolean; activo: boolean; parqueaderos: Parqueadero[]
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public detalles: string[] = []) {
     super(message)
@@ -205,6 +235,12 @@ export const api = {
     personas: (id: number) => request<Persona[]>(`/api/inmuebles/${id}/personas`),
     crear: (i: { torreBloque: string; numero: string; piso: number; tipoId: number }) =>
       request<Inmueble>('/api/inmuebles', { method: 'POST', body: i }),
+    actualizar: (id: number, i: { torreBloque: string; numero: string; piso: number; tipoId: number }) =>
+      request<Inmueble>(`/api/inmuebles/${id}`, { method: 'PUT', body: i }),
+    desactivar: (id: number, motivo: string) =>
+      request<Inmueble>(`/api/inmuebles/${id}/desactivar`, { method: 'PATCH', body: { motivo } }),
+    reactivar: (id: number) => request<Inmueble>(`/api/inmuebles/${id}/reactivar`, { method: 'PATCH' }),
+    eliminar: (id: number) => request<void>(`/api/inmuebles/${id}`, { method: 'DELETE' }),
     vincular: (id: number, v: { personaId: number; tipoPersonaId: number; fechaInicio?: string }) =>
       request<Persona>(`/api/inmuebles/${id}/vinculos`, { method: 'POST', body: v }),
   },
@@ -282,6 +318,42 @@ export const api = {
       request<Mantenimiento>(`/api/mantenimientos/${id}/finalizar`, { method: 'PATCH', body: observaciones ? { observaciones } : {} }),
     cancelar: (id: number, motivo: string) => request<Mantenimiento>(`/api/mantenimientos/${id}/cancelar`, { method: 'PATCH', body: { motivo } }),
   },
+
+  preRegistros: {
+    mios: () => request<PreRegistro[]>('/api/pre-registros/mios'),
+    crear: (p: NuevoPreRegistro) => request<PreRegistro>('/api/pre-registros', { method: 'POST', body: p }),
+    cancelar: (id: number) => request<PreRegistro>(`/api/pre-registros/${id}/cancelar`, { method: 'PATCH' }),
+  },
+
+  accesos: {
+    preRegistros: (documento: string) => request<PreRegistro[]>(`/api/accesos/pre-registros?documento=${encodeURIComponent(documento)}`),
+    conPreRegistro: (preRegistroId: number) =>
+      request<Visita>('/api/accesos/con-preregistro', { method: 'POST', body: { preRegistroId } }),
+    sinPreRegistro: (v: IngresoSinPreRegistro) => request<Visita>('/api/accesos/sin-preregistro', { method: 'POST', body: v }),
+    inmuebles: () => request<DirectorioInmueble[]>('/api/accesos/inmuebles'),
+    parqueaderosDisponibles: () => request<Parqueadero[]>('/api/accesos/parqueaderos-disponibles'),
+    asignarParqueadero: (id: number, parqueaderoId: number) =>
+      request<Visita>(`/api/accesos/${id}/parqueadero`, { method: 'PATCH', body: { parqueaderoId } }),
+    salida: (id: number) => request<Visita>(`/api/accesos/${id}/salida`, { method: 'PATCH' }),
+    dentro: () => request<Visita[]>('/api/accesos/dentro'),
+    historial: (f: { desde?: string; hasta?: string; documento?: string }) => {
+      const q = new URLSearchParams()
+      if (f.desde) q.set('desde', f.desde)
+      if (f.hasta) q.set('hasta', f.hasta)
+      if (f.documento) q.set('documento', f.documento)
+      const qs = q.toString()
+      return request<Visita[]>(`/api/accesos/historial${qs ? `?${qs}` : ''}`)
+    },
+  },
+
+  notificaciones: {
+    mias: (soloNoLeidas = false) => request<Notificacion[]>(`/api/notificaciones/mias${soloNoLeidas ? '?soloNoLeidas=true' : ''}`),
+    conteo: () => request<{ noLeidas: number }>('/api/notificaciones/mias/conteo'),
+    leer: (id: number) => request<Notificacion>(`/api/notificaciones/${id}/leer`, { method: 'PATCH' }),
+    leerTodas: () => request<{ noLeidas: number }>('/api/notificaciones/leer-todas', { method: 'PATCH' }),
+  },
+
+  misInmuebles: () => request<MiInmueble[]>('/api/mis-inmuebles'),
 }
 
 export function errorMessage(e: unknown): string {

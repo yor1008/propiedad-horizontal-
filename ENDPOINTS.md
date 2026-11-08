@@ -42,6 +42,9 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | PUT | `/api/perfil` | `@SoloPersonaVinculada` | 200 |
 | POST | `/api/inmuebles` | `@SoloAdministrador` | 201 |
 | GET | `/api/inmuebles` · `/api/inmuebles/{id}` · `/api/inmuebles/{id}/personas` | `@SoloAdministrador` | 200 |
+| PUT | `/api/inmuebles/{id}` | `@SoloAdministrador` | 200 |
+| PATCH | `/api/inmuebles/{id}/desactivar` · `/reactivar` | `@SoloAdministrador` | 200 |
+| DELETE | `/api/inmuebles/{id}` | `@SoloAdministrador` | 204 (solo sin historia; si no, 409) |
 | POST | `/api/inmuebles/{id}/vinculos` | `@SoloAdministrador` | 201 |
 | POST | `/api/vehiculos` | `@SoloAdministrador` | 201 |
 | GET | `/api/vehiculos` · `/api/vehiculos/{id}` | `@SoloAdministrador` | 200 |
@@ -74,6 +77,22 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | GET | `/api/mantenimientos` · `/api/mantenimientos/{id}` | `@SoloAdministrador` | 200 |
 | PUT | `/api/mantenimientos/{id}` | `@SoloAdministrador` | 200 (solo si está Programado) |
 | PATCH | `/api/mantenimientos/{id}/iniciar` · `/finalizar` · `/cancelar` | `@SoloAdministrador` | 200 |
+| POST | `/api/pre-registros` | `@SoloResidente` | 201 |
+| GET | `/api/pre-registros/mios` | `@SoloResidente` | 200 |
+| PATCH | `/api/pre-registros/{id}/cancelar` | `@SoloResidente` | 200 |
+| GET | `/api/accesos/pre-registros?documento=` | `@SoloVigilante` | 200 |
+| POST | `/api/accesos/con-preregistro` | `@SoloVigilante` | 201 |
+| POST | `/api/accesos/sin-preregistro` | `@SoloVigilante` | 201 |
+| GET | `/api/accesos/inmuebles` | `@SoloVigilante` | 200 |
+| GET | `/api/accesos/parqueaderos-disponibles` | `@SoloVigilante` | 200 |
+| PATCH | `/api/accesos/{id}/parqueadero` | `@SoloVigilante` | 200 |
+| PATCH | `/api/accesos/{id}/salida` | `@SoloVigilante` | 200 |
+| GET | `/api/accesos/dentro` | `@SoloVigilante` | 200 |
+| GET | `/api/accesos/historial?desde=&hasta=&documento=` | `@AdministradorOVigilante` | 200 |
+| GET | `/api/notificaciones/mias?soloNoLeidas=` | `@SoloPersonaVinculada` | 200 |
+| GET | `/api/notificaciones/mias/conteo` | `@SoloPersonaVinculada` | 200 |
+| PATCH | `/api/notificaciones/{id}/leer` · `/api/notificaciones/leer-todas` | `@SoloPersonaVinculada` | 200 |
+| GET | `/api/mis-inmuebles` | `@SoloPropietario` | 200 |
 
 **Valores de enums**
 - `rol` (`ERolCuenta`): `ADMINISTRADOR`, `VIGILANTE`, `PERSONA_VINCULADA`
@@ -262,6 +281,11 @@ Los ids del ejemplo son ilustrativos. Un `tipoPersonaId` inexistente en `POST /a
 **POST `/api/inmuebles`** → `{ "torreBloque": "A", "numero": "101", "piso": 1, "tipoId": 2 }`.
 201: `{ id, torreBloque, numero, piso, tipo, propietario, ocupado, activo }`. 409 si (torre, número) existe.
 
+**PUT `/api/inmuebles/{id}`** (admin) — mismo cuerpo que `POST /api/inmuebles` (`torreBloque`, `numero`, `piso`, `tipoId`); devuelve el inmueble actualizado. 400 campos inválidos; 404 inmueble o tipo inexistente; 409 si ya existe otro inmueble con esa torre y número (repetir los propios no da error); 422 tipo inactivo.
+**PATCH `/api/inmuebles/{id}/desactivar`** → `{ "motivo": "…" }` · **`/reactivar`** sin body. Devuelven el inmueble (`activo` true/false). **422 si aún tiene personas con vínculo vigente**: primero `PATCH /api/personas/{id}/finalizar-vinculo`. Un inmueble inactivo no admite nuevos vínculos.
+**DELETE `/api/inmuebles/{id}`** — borrado físico **solo si nunca se usó**: sin personas vinculadas (vigentes o pasadas), parqueaderos asignados, vehículos, correspondencia, PQRS, reservas, pre-registros ni visitas. Con historia responde 409: usa `desactivar`.
+Estos cuatro solo aplican a **unidades privadas**: con el id de un parqueadero responden 404 (los parqueaderos se gestionan en `/api/parqueaderos`). `GET /api/inmuebles` trae activos e inactivos; filtra por `activo` en el front si hace falta.
+
 **POST `/api/inmuebles/{id}/vinculos`** → `{ "personaId": 1, "tipoPersonaId": 1, "fechaInicio": "2026-11-07" }` (`fechaInicio` opcional = hoy).
 201 con la persona. 409 si ya tiene un vínculo vigente.
 **PATCH `/api/personas/{id}/finalizar-vinculo`** → `{ "motivo": "Se mudó" }`. 422 si no hay vínculo vigente.
@@ -343,6 +367,83 @@ Errores: 400 campos inválidos; 404 zona o tipo inexistente; 409 si la zona ya t
 **PATCH `/{id}/iniciar`** (Programado → En curso, sin body) · **`/finalizar`** → `{ "observaciones": "…" }` (body opcional; En curso → Completado; si no tenía fin, se fija al momento de finalizar) · **`/cancelar`** → `{ "motivo": "…" }` (obligatorio; desde Programado o En curso). 422 si la transición no es válida.
 
 **Efecto en reservas:** mientras un mantenimiento de una zona esté `Programado` o `En curso`, `POST /api/reservas` responde **409** para horarios que lo crucen, y `GET /api/zonas-comunes/{id}/disponibilidad` lo incluye en `ocupadas` con `"estado": "Mantenimiento"`. Al completarse o cancelarse, el horario se libera.
+
+---
+
+## Seguridad: pre-registros y control de accesos (CU-015 a CU-021)
+
+Fechas `yyyy-MM-dd`; fecha y hora `yyyy-MM-ddTHH:mm:ss` (hora local). `tipoVehiculoId` de `GET /api/catalogos/TIPO_VEHICULO`.
+
+### Pre-registros — `@SoloResidente` (CU-015)
+**POST `/api/pre-registros`**
+```json
+{ "nombreCompleto": "Pedro Pérez", "numeroDocumento": "9001", "tipoVigencia": "FECHA_ESPECIFICA",
+  "fechaPrevista": "2026-11-14", "motivo": "Visita familiar", "placaVehiculo": "abc123", "tipoVehiculoId": 8 }
+```
+`tipoVigencia` (`ETipoVigencia`): `FECHA_ESPECIFICA` (exige `fechaPrevista` de hoy en adelante; sirve para **un** ingreso) o `PERMANENTE` (sin fecha; sirve hasta cancelarlo). `motivo`, `placaVehiculo` y `tipoVehiculoId` son opcionales. 201:
+`{ id, visitanteId, visitante, numeroDocumento, personaId, residente, inmuebleId, inmueble, tipoVigencia, fechaPrevista, motivo, placaVehiculo, tipoVehiculo, activo, usado, vigente, fechaRegistro }`.
+`vigente` = se puede usar hoy. Errores: 400 campos inválidos; 404 tipo de vehículo inexistente; 409 ya existe uno igual vigente para ese visitante e inmueble; 422 fecha pasada o faltante, o la persona no es residente con vínculo vigente.
+**GET `/mios`**: todos los propios, el más reciente primero (incluye cancelados y usados). **PATCH `/{id}/cancelar`** (sin body): 404 si no es suyo; 422 si ya está cancelado o ya se usó.
+
+### Acceso de visitantes — `@SoloVigilante`
+Todas devuelven o listan **`RegistroVisitaResponse`**:
+```json
+{ "id": 7, "visitanteId": 3, "visitante": "Pedro Pérez", "numeroDocumento": "9001", "inmuebleId": 1, "inmueble": "A-101",
+  "conPreRegistro": true, "preRegistroId": 5, "residenteContactadoId": null, "residenteContactado": null,
+  "respuestaResidente": null, "ingresoAutorizado": true, "motivoNegacion": null, "tipoVehiculo": "Carro",
+  "parqueaderoId": null, "parqueadero": null, "fechaHoraLlegada": "2026-11-14T10:02:11", "fechaHoraEntrada": "2026-11-14T10:02:11",
+  "fechaHoraSalida": null, "dentro": true, "estado": "Dentro" }
+```
+`estado`: `Dentro` (autorizado y sin salida), `Salio` o `Negado`. `parqueadero` es `torre-numero` (p. ej. `P-1`).
+
+- **GET `/api/accesos/pre-registros?documento=9001`** — pre-registros de ese documento que se pueden usar **hoy** (lista vacía si no hay). Para la pantalla *Autorizar ingreso*.
+- **POST `/api/accesos/con-preregistro`** → `{ "preRegistroId": 5 }` (201). Registra llegada y entrada ahora; si es de fecha específica queda usado. 404 no existe; 422 no vigente (cancelado, usado, de otra fecha) o el residente ya no tiene vínculo; 409 el visitante **ya está dentro**.
+- **GET `/api/accesos/inmuebles`** — directorio para *Ingreso sin preregistro*: `[ { id, torreBloque, numero, residentes: [ { id, nombre, telefono } ] } ]` (solo unidades activas con residentes vigentes).
+- **POST `/api/accesos/sin-preregistro`** (201)
+```json
+{ "nombreCompleto": "María López", "numeroDocumento": "9002", "inmuebleId": 1, "residenteContactadoId": 4,
+  "respuestaResidente": "APRUEBA", "motivoNegacion": null, "tipoVehiculoId": 8 }
+```
+`respuestaResidente` (`EResultadoContacto`): `APRUEBA` deja entrar; `NO_APRUEBA` y `NO_CONTESTA` **niegan** el ingreso (201 con `estado: "Negado"`, queda en el historial; `motivoNegacion` opcional, si falta se pone «El residente no contestó» / «no autorizó el ingreso»). 404 inmueble o persona inexistente; 422 el inmueble no es una unidad privada activa o la persona no es **residente** vigente de ese inmueble; 409 el visitante ya está dentro. Si el documento ya existía se conserva el nombre registrado.
+- **GET `/api/accesos/parqueaderos-disponibles`** — parqueaderos activos, **sin inmueble asignado** y que ninguna visita dentro esté usando: `[ ParqueaderoResponse ]` (`id, torreBloque, numero, piso, tipo, inmuebleAsociadoId, inmuebleAsociado, activo, disponible`).
+- **PATCH `/api/accesos/{id}/parqueadero`** → `{ "parqueaderoId": 12 }`. Solo si el visitante está **dentro**. 404 inexistente; 422 no está dentro, parqueadero inactivo o es de un inmueble; 409 lo ocupa otro visitante. El parqueadero se libera solo al registrar la salida.
+- **PATCH `/api/accesos/{id}/salida`** (sin body) — 200 con `estado: "Salio"`; 422 si no está dentro (ya salió o fue negado).
+- **GET `/api/accesos/dentro`** — visitantes dentro ahora, el que entró más reciente primero.
+
+### Historial — `@AdministradorOVigilante` (CU-021)
+**GET `/api/accesos/historial?desde=2026-11-01&hasta=2026-11-30&documento=9001`** — los tres filtros son opcionales (`desde`/`hasta` por día de **llegada**, ambos inclusive). Devuelve `[ RegistroVisitaResponse ]` con los **500 más recientes**, incluidos los negados. 400 fecha mal formada; 422 si `hasta` < `desde`.
+
+---
+
+## Notificaciones — `@SoloPersonaVinculada` (CU-004)
+
+Son siempre las de la persona del token. **El administrador y el vigilante no tienen notificaciones** (no son personas): reciben 403, así que el front no debe pintar la campana para esos roles.
+
+```json
+{ "id": 21, "evento": "INGRESO_VISITANTE", "mensaje": "Ingresó su visitante Pedro Pérez a las 10:02.", "fechaHora": "2026-11-14T10:02:11", "leida": false }
+```
+- **GET `/api/notificaciones/mias`** — más recientes primero; `?soloNoLeidas=true` filtra.
+- **GET `/api/notificaciones/mias/conteo`** → `{ "noLeidas": 2 }` — el número de la campana y del menú.
+- **PATCH `/api/notificaciones/{id}/leer`** → la notificación (`leida: true`); 404 si no existe o es de otra persona.
+- **PATCH `/api/notificaciones/leer-todas`** → `{ "noLeidas": 0 }`.
+
+`evento` (`ETipoEvento`) y cuándo se genera:
+| `evento` | Se crea cuando | Para quién |
+|---|---|---|
+| `CORRESPONDENCIA_RECIBIDA` | el vigilante registra correspondencia | el destinatario; si va al inmueble, todas las personas con vínculo vigente |
+| `INGRESO_VISITANTE` | entra un visitante (con o sin pre-registro) | quien lo pre-registró, o el residente que aprobó |
+| `CAMBIO_ESTADO_RESERVA` | el administrador **aprueba, rechaza o cancela** una reserva | quien reservó |
+| `RESPUESTA_PQRS` | el administrador responde una PQRS | quien la radicó |
+
+Se crean en el momento del evento (no hay retroactivas). El correo electrónico aún no se envía.
+
+---
+
+## Inmuebles del propietario — `@SoloPropietario` (CU-011)
+
+**GET `/api/mis-inmuebles`** → `[ { id, torreBloque, numero, piso, tipo, ocupado, activo, parqueaderos: [ ParqueaderoResponse ] } ]`. Solo el inmueble donde la persona del token es **propietaria con vínculo vigente** (hoy una persona tiene un solo vínculo, así que la lista trae 0 o 1 elemento; es lista por si el modelo crece). Residentes sin ser propietarios reciben 403.
+
+**Perfil de administrador y vigilante:** `/api/perfil` es solo para personas vinculadas (CU-003). Para mostrar la cuenta de un administrador o vigilante usa `GET /api/auth/me` (correo, rol).
 
 ---
 

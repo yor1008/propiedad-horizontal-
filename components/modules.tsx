@@ -127,29 +127,50 @@ function NuevaPersona({ onClose, onCreated }: { onClose: () => void; onCreated: 
 
 export function InmueblesPage({ notify }: { notify: Notify }) {
   const { items, setItems, error } = useList<Inmueble>(api.inmuebles.listar, [])
-  const [open, setOpen] = useState(false)
   const tipos = useCatalog('TIPO_INMUEBLE')
+  const [form, setForm] = useState<{ edit?: Inmueble } | null>(null)
   const [f, setF] = useState({ torreBloque: '', numero: '', piso: '', tipoId: '' })
+  const [off, setOff] = useState<Inmueble | null>(null)
+  const [del, setDel] = useState<Inmueble | null>(null)
+
+  const openNew = () => { setF({ torreBloque: '', numero: '', piso: '', tipoId: '' }); setForm({}) }
+  const openEdit = (i: Inmueble) => {
+    setF({ torreBloque: i.torreBloque, numero: i.numero, piso: String(i.piso), tipoId: String(tipos.find(t => t.nombre === i.tipo)?.id ?? '') }); setForm({ edit: i })
+  }
+  async function reactivar(i: Inmueble) {
+    try { setItems(replaceIn(await api.inmuebles.reactivar(i.id))); notify('Inmueble reactivado') } catch (e) { notify(errorMessage(e)) }
+  }
 
   return <>
     <Header kicker="ADMINISTRACIÓN · PROPIEDAD" title="Inmuebles">
-      <button className="primary-btn" onClick={() => setOpen(true)}><Plus size={16} /> Nuevo inmueble</button>
+      <button className="primary-btn" onClick={openNew}><Plus size={16} /> Nuevo inmueble</button>
     </Header>
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Inmueble', 'Piso', 'Tipo', 'Propietario', 'Estado']} foot={`${items.length} inmuebles`}>
+    {items === null ? <Loading /> : <Table head={['Inmueble', 'Piso', 'Tipo', 'Propietario', 'Estado', 'Acciones']} foot={`${items.length} inmuebles`}>
       {items.map(i => <tr key={i.id}>
         <td>{i.torreBloque}-{i.numero} <small>(#{i.id})</small></td><td>{i.piso}</td><td>{i.tipo}</td><td>{i.propietario ?? '—'}</td>
         <td><Badge tone={!i.activo ? 'amber' : i.ocupado ? 'green' : 'neutral'}>{!i.activo ? 'Inactivo' : i.ocupado ? 'Ocupado' : 'Disponible'}</Badge></td>
+        <td><button className="row-action" onClick={() => openEdit(i)}>Editar</button>{' '}
+          {i.activo ? <button className="row-action" onClick={() => setOff(i)}>Desactivar</button> : <button className="row-action" onClick={() => reactivar(i)}>Reactivar</button>}{' '}
+          <button className="row-action" onClick={() => setDel(i)}>Eliminar</button></td>
       </tr>)}
     </Table>}
-    {open && <FormModal title="Nuevo inmueble" submitLabel="Guardar" onClose={() => setOpen(false)} onSubmit={async () => {
-      const i = await api.inmuebles.crear({ torreBloque: f.torreBloque, numero: f.numero, piso: +f.piso, tipoId: +f.tipoId })
-      setItems(l => [...(l ?? []), i]); setOpen(false); notify('Inmueble creado')
+    {form && <FormModal title={form.edit ? `Editar ${form.edit.torreBloque}-${form.edit.numero}` : 'Nuevo inmueble'} submitLabel="Guardar" onClose={() => setForm(null)} onSubmit={async () => {
+      const body = { torreBloque: f.torreBloque, numero: f.numero, piso: +f.piso, tipoId: +f.tipoId }
+      if (form.edit) setItems(replaceIn(await api.inmuebles.actualizar(form.edit.id, body)))
+      else { const i = await api.inmuebles.crear(body); setItems(l => [...(l ?? []), i]) }
+      setForm(null); notify('Inmueble guardado')
     }}>
       <label>Torre / bloque<b>*</b><input required value={f.torreBloque} onChange={e => setF({ ...f, torreBloque: e.target.value })} /></label>
       <label>Número<b>*</b><input required value={f.numero} onChange={e => setF({ ...f, numero: e.target.value })} /></label>
       <label>Piso<b>*</b><input type="number" required value={f.piso} onChange={e => setF({ ...f, piso: e.target.value })} /></label>
       <Select label="Tipo" value={f.tipoId} onChange={v => setF({ ...f, tipoId: v })}>{options(tipos)}</Select>
+    </FormModal>}
+    {off && <TextPrompt title={`Desactivar ${off.torreBloque}-${off.numero}`} label="Motivo" submitLabel="Desactivar" onClose={() => setOff(null)}
+      onSubmit={async motivo => { setItems(replaceIn(await api.inmuebles.desactivar(off.id, motivo))); setOff(null); notify('Inmueble desactivado') }} />}
+    {del && <FormModal title={`Eliminar ${del.torreBloque}-${del.numero}`} submitLabel="Eliminar" onClose={() => setDel(null)}
+      onSubmit={async () => { await api.inmuebles.eliminar(del.id); setItems(l => (l ?? []).filter(x => x.id !== del.id)); setDel(null); notify('Inmueble eliminado') }}>
+      <p style={{ gridColumn: '1 / -1', fontSize: 13 }}>Se borra de forma definitiva. Solo es posible si nunca se usó (sin personas, vehículos, correspondencia, PQRS, reservas…); si tiene historia, usa <b>Desactivar</b>.</p>
     </FormModal>}
   </>
 }
