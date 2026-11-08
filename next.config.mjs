@@ -1,5 +1,3 @@
-const API_URL = process.env.API_URL || 'http://localhost:8080'
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typescript: {
@@ -11,10 +9,7 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react'],
   },
-  // El navegador llama a /api/* y Next lo reenvía al backend (sin CORS).
-  async rewrites() {
-    return [{ source: '/api/:path*', destination: `${API_URL}/api/:path*` }]
-  },
+  // /api/* lo atiende app/api/[...path]/route.ts (proxy con respaldo entre servidores; ver API_URLS).
 }
 
 export default nextConfig
