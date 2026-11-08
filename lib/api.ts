@@ -71,6 +71,17 @@ export type Reserva = {
   condicionesUso: string | null; motivoRechazoCancelacion: string | null; estado: string; fechaRegistro: string; puedeCancelar: boolean
 }
 
+export type Mantenimiento = {
+  id: number; zonaComunId: number | null; zonaComun: string | null; tipo: string; elementoArea: string
+  descripcion: string; fechaHoraInicio: string; fechaHoraFin: string | null; responsable: string | null
+  observaciones: string | null; motivoCancelacion: string | null; estado: string
+}
+export type NuevoMantenimiento = {
+  zonaComunId?: number; tipoId: number; elementoArea: string; descripcion: string
+  fechaHoraInicio: string; fechaHoraFin?: string; responsable?: string
+}
+export type EdicionMantenimiento = { descripcion: string; fechaHoraInicio: string; fechaHoraFin?: string; responsable?: string }
+
 export class ApiError extends Error {
   constructor(public status: number, message: string, public detalles: string[] = []) {
     super(message)
@@ -260,6 +271,16 @@ export const api = {
     rechazar: (id: number, motivo: string) => request<Reserva>(`/api/reservas/${id}/rechazar`, { method: 'PATCH', body: { motivo } }),
     anular: (id: number, motivo: string) => request<Reserva>(`/api/reservas/${id}/anular`, { method: 'PATCH', body: { motivo } }),
     finalizar: (id: number) => request<Reserva>(`/api/reservas/${id}/finalizar`, { method: 'PATCH' }),
+  },
+
+  mantenimientos: {
+    listar: () => request<Mantenimiento[]>('/api/mantenimientos'),
+    crear: (m: NuevoMantenimiento) => request<Mantenimiento>('/api/mantenimientos', { method: 'POST', body: m }),
+    actualizar: (id: number, m: EdicionMantenimiento) => request<Mantenimiento>(`/api/mantenimientos/${id}`, { method: 'PUT', body: m }),
+    iniciar: (id: number) => request<Mantenimiento>(`/api/mantenimientos/${id}/iniciar`, { method: 'PATCH' }),
+    finalizar: (id: number, observaciones?: string) =>
+      request<Mantenimiento>(`/api/mantenimientos/${id}/finalizar`, { method: 'PATCH', body: observaciones ? { observaciones } : {} }),
+    cancelar: (id: number, motivo: string) => request<Mantenimiento>(`/api/mantenimientos/${id}/cancelar`, { method: 'PATCH', body: { motivo } }),
   },
 }
 

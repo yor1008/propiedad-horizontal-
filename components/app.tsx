@@ -27,6 +27,7 @@ const CambiarContrasena = dynamic(() => import('./api-pages').then(m => m.Cambia
 const ZonasPage = dynamic(() => import('./reservas').then(m => m.ZonasPage))
 const ReservarPage = dynamic(() => import('./reservas').then(m => m.ReservarPage))
 const ReservasPage = dynamic(() => import('./reservas').then(m => m.ReservasPage))
+const MantenimientosPage = dynamic(() => import('./mantenimientos').then(m => m.MantenimientosPage))
 const PerfilPage = dynamic(() => import('./modules').then(m => m.PerfilPage))
 const PersonasPage = dynamic(() => import('./modules').then(m => m.PersonasPage))
 const InmueblesPage = dynamic(() => import('./modules').then(m => m.InmueblesPage))
@@ -170,7 +171,7 @@ export default function Page() {
     <main className="main-area">
       <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label="Abrir menú"><Menu /></button><div><p className="eyebrow">{activeModule} / {page}</p><h1>{page}</h1></div><div className="top-actions"><button className="notification"><Bell size={19} /><i>2</i></button><div className="user-chip"><span>{currentRole!.initials}</span><div><strong>{currentRole!.name}</strong><small>{currentRole!.role}</small></div><ChevronDown size={15} /></div></div></header>
       <div className="content">
-        {page === 'Personas' ? <PersonasPage notify={flash} /> : page === 'Inmuebles' ? <InmueblesPage notify={flash} /> : page === 'Vinculaciones' ? <VinculacionesPage notify={flash} /> : page === 'Vehículos' ? <VehiculosPage notify={flash} /> : page === 'Consultar por placa' ? <ConsultaPlacaPage /> : page === 'Parqueaderos' ? <ParqueaderosPage notify={flash} /> : page === 'Correspondencia' ? <CorrespondenciaPage notify={flash} isGuard={user === 'guard'} /> : page === 'Radicar PQRS' ? <RadicarPqrsPage notify={flash} onDone={() => setPage('Mis PQRS')} /> : page === 'Mis PQRS' ? <PqrsListPage notify={flash} admin={false} /> : page === 'Atender PQRS' ? <PqrsListPage notify={flash} admin /> : page === 'Zonas comunes' ? <ZonasPage notify={flash} /> : page === 'Reservar zona' ? <ReservarPage notify={flash} onDone={() => setPage('Mis reservas')} /> : page === 'Mis reservas' ? <ReservasPage notify={flash} admin={false} /> : page === 'Gestionar reservas' ? <ReservasPage notify={flash} admin /> : page === 'Cuentas' ? <CuentasPage notify={flash} myAccountId={me!.cuentaId} /> : page === 'Catálogos' ? <CatalogosPage notify={flash} isAdmin={user === 'admin'} /> : page === 'Mi perfil' ? <><PerfilPage me={me!} notify={flash} /><CambiarContrasena notify={flash} /></> : page === 'Notificaciones' || page === 'Actividad reciente' ? <ActivityPage page={page} onAction={action} /> : <DataPage title={page} module={activeModule!} currentRole={user} rows={filteredRows} columns={currentTable?.columns} query={query} setQuery={setQuery} onAdd={() => setShowModal(true)} onAction={action} />}
+        {page === 'Personas' ? <PersonasPage notify={flash} /> : page === 'Inmuebles' ? <InmueblesPage notify={flash} /> : page === 'Vinculaciones' ? <VinculacionesPage notify={flash} /> : page === 'Vehículos' ? <VehiculosPage notify={flash} /> : page === 'Consultar por placa' ? <ConsultaPlacaPage /> : page === 'Parqueaderos' ? <ParqueaderosPage notify={flash} /> : page === 'Correspondencia' ? <CorrespondenciaPage notify={flash} isGuard={user === 'guard'} /> : page === 'Radicar PQRS' ? <RadicarPqrsPage notify={flash} onDone={() => setPage('Mis PQRS')} /> : page === 'Mis PQRS' ? <PqrsListPage notify={flash} admin={false} /> : page === 'Atender PQRS' ? <PqrsListPage notify={flash} admin /> : page === 'Zonas comunes' ? <ZonasPage notify={flash} /> : page === 'Reservar zona' ? <ReservarPage notify={flash} onDone={() => setPage('Mis reservas')} /> : page === 'Mis reservas' ? <ReservasPage notify={flash} admin={false} /> : page === 'Gestionar reservas' ? <ReservasPage notify={flash} admin /> : page === 'Mantenimientos' ? <MantenimientosPage notify={flash} /> : page === 'Cuentas' ? <CuentasPage notify={flash} myAccountId={me!.cuentaId} /> : page === 'Catálogos' ? <CatalogosPage notify={flash} isAdmin={user === 'admin'} /> : page === 'Mi perfil' ? <><PerfilPage me={me!} notify={flash} /><CambiarContrasena notify={flash} /></> : page === 'Notificaciones' || page === 'Actividad reciente' ? <ActivityPage page={page} onAction={action} /> : <DataPage title={page} module={activeModule!} currentRole={user} rows={filteredRows} columns={currentTable?.columns} query={query} setQuery={setQuery} onAdd={() => setShowModal(true)} onAction={action} />}
       </div>
     </main>
     {showModal && <Modal title={page === 'Radicar PQRS' ? 'Radicar nueva PQRS' : `Nuevo registro · ${page}`} onClose={() => setShowModal(false)} onSave={() => action('Registro guardado correctamente')} />}
@@ -179,12 +180,15 @@ export default function Page() {
 }
 
 function Welcome({ onLogin }: { onLogin: (correo: string, contrasena: string) => Promise<void> }) {
-  const [correo, setCorreo] = useState('')
-  const [contrasena, setContrasena] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  async function submit(e: React.FormEvent) {
+  // Se leen los valores del DOM (no del estado): evita enviar vacío o desactualizado si el navegador
+  // autocompleta los campos antes de que la página prerenderizada termine de cargar.
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault(); setError(''); setBusy(true)
+    const data = new FormData(e.currentTarget)
+    const correo = String(data.get('correo') ?? '').trim()
+    const contrasena = String(data.get('contrasena') ?? '')
     try { await onLogin(correo, contrasena) } catch (err) { setError(errorMessage(err)); setBusy(false) }
   }
   return <main className="welcome"><img className="welcome-art" src="/login-hero.webp" alt="" aria-hidden="true" fetchPriority="high" decoding="async" /><div className="welcome-inner">
@@ -192,8 +196,8 @@ function Welcome({ onLogin }: { onLogin: (correo: string, contrasena: string) =>
     <div className="welcome-copy"><span className="kicker">PLATAFORMA INTEGRAL</span><h1>Todo el conjunto,<br /><em>en un solo lugar.</em></h1><p>Administra, opera y protege tu comunidad residencial con información clara y decisiones oportunas.</p></div>
     <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
       <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
-        <label>Correo<b>*</b><input type="email" required autoComplete="username" value={correo} onChange={e => setCorreo(e.target.value)} /></label>
-        <label>Contraseña<b>*</b><input type="password" required autoComplete="current-password" value={contrasena} onChange={e => setContrasena(e.target.value)} /></label>
+        <label>Correo<b>*</b><input name="correo" type="email" required autoComplete="username" /></label>
+        <label>Contraseña<b>*</b><input name="contrasena" type="password" required autoComplete="current-password" /></label>
       </div>
       {error && <p role="alert" style={{ color: '#b42318', fontSize: 13 }}>{error}</p>}
       <div className="form-actions"><button className="primary-btn" disabled={busy}><KeyRound size={16} /> {busy ? 'Ingresando…' : 'Ingresar'}</button></div>

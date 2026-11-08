@@ -70,6 +70,10 @@ pm.collectionVariables.set("token", pm.response.json().accessToken);
 | PATCH | `/api/reservas/{id}/cancelar` | `@SoloResidente` | 200 |
 | GET | `/api/reservas` | `@SoloAdministrador` | 200 |
 | PATCH | `/api/reservas/{id}/aprobar` · `/rechazar` · `/anular` · `/finalizar` | `@SoloAdministrador` | 200 |
+| POST | `/api/mantenimientos` | `@SoloAdministrador` | 201 |
+| GET | `/api/mantenimientos` · `/api/mantenimientos/{id}` | `@SoloAdministrador` | 200 |
+| PUT | `/api/mantenimientos/{id}` | `@SoloAdministrador` | 200 (solo si está Programado) |
+| PATCH | `/api/mantenimientos/{id}/iniciar` · `/finalizar` · `/cancelar` | `@SoloAdministrador` | 200 |
 
 **Valores de enums**
 - `rol` (`ERolCuenta`): `ADMINISTRADOR`, `VIGILANTE`, `PERSONA_VINCULADA`
@@ -318,6 +322,27 @@ Formatos: fecha `yyyy-MM-dd`, hora `HH:mm`. `diaSemana` (`EDiaSemana`): `LUNES` 
 **PATCH `/{id}/cancelar`** (residente, solo las suyas; ajenas = 404) → `{ "motivo": "…" }`. 422 fuera del plazo o ya final.
 
 **Administrador:** **GET `/api/reservas`** (todas) · **PATCH** `/{id}/aprobar` → `{ "condiciones": "…" }` (body opcional) · `/rechazar` → `{ "motivo": "…" }` · `/anular` → `{ "motivo": "…" }` (cancela sin límite de horas) · `/finalizar` (sin body). 422 si la transición no es válida desde el estado actual (p. ej. aprobar una rechazada).
+
+---
+
+## Mantenimientos (CU-028) — `@SoloAdministrador`
+
+Formato de fecha y hora: `yyyy-MM-ddTHH:mm` (hora local, igual que las reservas). `tipoId` de `GET /api/catalogos/TIPO_MANTENIMIENTO`.
+
+**POST `/api/mantenimientos`** (programar)
+```json
+{ "zonaComunId": 1, "tipoId": 15, "elementoArea": "Piscina", "descripcion": "Cambio de filtros",
+  "fechaHoraInicio": "2026-11-14T09:00", "fechaHoraFin": "2026-11-14T13:00", "responsable": "Aguas S.A." }
+```
+`zonaComunId` es opcional: si viene, la zona queda **bloqueada para reservas** durante el mantenimiento; sin él es un mantenimiento general (ascensor, portería…). `fechaHoraFin` es opcional (periodo abierto). 201:
+`{ id, zonaComunId, zonaComun, tipo, elementoArea, descripcion, fechaHoraInicio, fechaHoraFin, responsable, observaciones, motivoCancelacion, estado }` con `estado` = `Programado`.
+Errores: 400 campos inválidos; 404 zona o tipo inexistente; 409 si la zona ya tiene **reservas vigentes** en ese periodo (anúlalas antes con `/api/reservas/{id}/anular`); 422 si `fechaHoraFin` ≤ inicio, el inicio está en el pasado (tolerancia 5 min) o el tipo está inactivo.
+
+**GET** `/api/mantenimientos` (más recientes primero) · `/{id}`.
+**PUT `/{id}`** → `{ "descripcion": "…", "fechaHoraInicio": "…", "fechaHoraFin": "…", "responsable": "…" }`. Solo mientras está `Programado` (422 si ya inició, terminó o se canceló); zona, tipo y elemento no cambian. Vuelve a validar fechas y reservas.
+**PATCH `/{id}/iniciar`** (Programado → En curso, sin body) · **`/finalizar`** → `{ "observaciones": "…" }` (body opcional; En curso → Completado; si no tenía fin, se fija al momento de finalizar) · **`/cancelar`** → `{ "motivo": "…" }` (obligatorio; desde Programado o En curso). 422 si la transición no es válida.
+
+**Efecto en reservas:** mientras un mantenimiento de una zona esté `Programado` o `En curso`, `POST /api/reservas` responde **409** para horarios que lo crucen, y `GET /api/zonas-comunes/{id}/disponibilidad` lo incluye en `ocupadas` con `"estado": "Mantenimiento"`. Al completarse o cancelarse, el horario se libera.
 
 ---
 
