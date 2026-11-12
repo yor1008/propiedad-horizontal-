@@ -1,11 +1,13 @@
 'use client'
 
+import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, KeyRound, Plus, Search, X } from 'lucide-react'
 import {
   api, errorMessage, peek, TIPOS_CATALOGO,
   type Catalogo, type ConfigGeneral, type ConfigNotificacion, type EventoNotificacion, type Cuenta, type NuevaPersona, type Persona, type Rol, type TipoCatalogo, type TipoPersona,
 } from '@/lib/api'
+import { PublicFrame } from './brand'
 
 type Notify = (message: string) => void
 
@@ -17,20 +19,38 @@ export function Badge({ tone, children }: { tone: string; children: React.ReactN
   return <span className={`status-badge ${tone}`}>{children}</span>
 }
 
+// Placa de vehículo (amarilla, como las colombianas) y placa de apartamento (celeste): el identificador
+// de un registro se ve como el rótulo que tiene en la vida real.
+export const Placa = ({ value }: { value: string }) => <span className="placa">{value}</span>
+export const Unidad = ({ value }: { value: string }) => <span className="unit">{value}</span>
+
+// Un correo largo solo se parte antes de la arroba, nunca a mitad de una palabra.
+export const Correo = ({ value }: { value: string }) => {
+  const i = value.indexOf('@')
+  return i < 0 ? <>{value}</> : <>{value.slice(0, i)}<wbr />{value.slice(i)}</>
+}
+
 export function Header({ kicker, title, children }: { kicker: string; title: string; children?: React.ReactNode }) {
-  // El título y la ruta ya se muestran en la barra superior; aquí solo van las acciones de la vista.
-  return children ? <section className="hero-row" aria-label={title} style={{ justifyContent: 'flex-end', marginBottom: 18 }}>{children}</section> : null
+  // El título ya se muestra en la barra superior; aquí solo van las acciones de la vista (el estilo las
+  // coloca junto al buscador en escritorio y como botón flotante en celular).
+  return children ? <section className="hero-row" aria-label={title}>{children}</section> : null
 }
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="modal-backdrop" onClick={onClose}><div className="modal" onClick={e => e.stopPropagation()}>
-    <div className="modal-head"><div><h3>{title}</h3></div><button onClick={onClose} aria-label="Cerrar"><X size={18} /></button></div>
+  // Escape cierra el diálogo, igual que el botón de la esquina.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return <div className="modal-backdrop" onClick={onClose}><div className="modal" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
+    <div className="modal-head"><div><h3>{title}</h3></div><button type="button" onClick={onClose} aria-label="Cerrar"><X size={20} /></button></div>
     {children}
   </div></div>
 }
 
 export function ErrorLine({ message }: { message: string }) {
-  return message ? <p role="alert" style={{ color: '#b42318', fontSize: 13, margin: '8px 0' }}>{message}</p> : null
+  return message ? <p role="alert" className="msg-error">{message}</p> : null
 }
 
 // Carga una lista y expone recarga/estado.
@@ -46,13 +66,13 @@ export function useList<T>(load: () => Promise<T[]>, deps: unknown[]) {
   return { items, setItems, error, reload }
 }
 
-export const Loading = () => <div className="empty-panel"><p>Cargando…</p></div>
+export const Loading = () => <div className="skeleton" role="status" aria-label="Cargando"><i /><i /><i /></div>
 
 /* ───────────── Diálogos y filtros reutilizables ───────────── */
 
 // Formulario en modal con descripción opcional, estado "procesando" y estilo de peligro.
 export function FormModal({ title, description, submitLabel, danger, onClose, onSubmit, children }: {
-  title: string; description?: string; submitLabel: string; danger?: boolean
+  title: string; description?: React.ReactNode; submitLabel: string; danger?: boolean
   onClose: () => void; onSubmit: () => Promise<void>; children?: React.ReactNode
 }) {
   const [error, setError] = useState('')
@@ -61,7 +81,7 @@ export function FormModal({ title, description, submitLabel, danger, onClose, on
     e.preventDefault(); setError(''); setBusy(true)
     try { await onSubmit() } catch (err) { setError(errorMessage(err)); setBusy(false) }
   }}>
-    {description && <p className="dialog-desc">{description}</p>}
+    {description && <div className="dialog-desc">{description}</div>}
     {children && <div className="fields-grid">{children}</div>}
     <ErrorLine message={error} />
     <div className="form-actions"><button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancelar</button>
@@ -71,7 +91,7 @@ export function FormModal({ title, description, submitLabel, danger, onClose, on
 
 // Pide un texto (motivo, respuesta…), con motivos frecuentes para elegir con un toque.
 export function TextPrompt({ title, label, submitLabel, area, description, reasons, danger, onClose, onSubmit }: {
-  title: string; label: string; submitLabel: string; area?: boolean; description?: string; reasons?: string[]; danger?: boolean
+  title: string; label: string; submitLabel: string; area?: boolean; description?: React.ReactNode; reasons?: string[]; danger?: boolean
   onClose: () => void; onSubmit: (v: string) => Promise<void>
 }) {
   const [v, setV] = useState('')
@@ -92,6 +112,20 @@ export function ConfirmModal({ title, description, details, confirmLabel, danger
   return <FormModal title={title} description={description} danger={danger} submitLabel={confirmLabel} onClose={onClose} onSubmit={onConfirm}>
     {details && <dl className="summary">{details.map(([k, val]) => <div key={k}><dt>{k}</dt><dd>{val}</dd></div>)}</dl>}
   </FormModal>
+}
+
+// Botón "Eliminar" con confirmación. El borrado es físico y solo procede si el registro no tiene historia:
+// si la API responde 409/422, su mensaje (qué usar en su lugar) se muestra en el modal.
+export function EliminarBtn({ nombre, run, onDone, notify, disabled }: {
+  nombre: string; run: () => Promise<void>; onDone: () => void; notify: Notify; disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  return <>
+    <button className="danger" disabled={disabled} onClick={() => setOpen(true)}>Eliminar</button>
+    {open && createPortal(<ConfirmModal title={`Eliminar ${nombre}`} confirmLabel="Eliminar definitivamente" onClose={() => setOpen(false)}
+      description="Se borra de forma definitiva y no se puede deshacer. Solo es posible si no tiene historia; si la tiene, usa la otra acción (desactivar, cancelar o anular)."
+      onConfirm={async () => { await run(); setOpen(false); onDone(); notify('Eliminado') }} />, document.body)}
+  </>
 }
 
 const FILTROS = [['todos', 'Todos'], ['activos', 'Activos'], ['inactivos', 'Inactivos']] as const
@@ -181,24 +215,24 @@ export function PersonaFields({ f, setF, lockCore = false }: { f: PersonaForm; s
     <label>Apellidos<b>*</b><input required value={f.apellidos} onChange={e => set('apellidos')(e.target.value)} /></label>
     <label>Tipo de documento<b>*</b><select required disabled={lockCore} value={docValue} onChange={e => set('tipoDocumentoId')(e.target.value)}>
       <option value="">{placeholder(docs.loading, docs.error)}</option>{docs.items.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select>
-      {docs.error && <small style={{ color: '#b42318' }}>{docs.error}</small>}</label>
+      {docs.error && <small className="msg-error">{docs.error}</small>}</label>
     <label>Número de documento<b>*</b><input required disabled={lockCore} value={f.numeroDocumento} onChange={e => set('numeroDocumento')(e.target.value)} /></label>
     <label>Tipo de persona<b>*</b><select required disabled={lockCore} value={f.tipoPersonaId} onChange={e => set('tipoPersonaId')(e.target.value)}>
       <option value="">{placeholder(tipos.loading, tipos.error)}</option>{tipos.items.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}</select>
-      {tipos.error && <small style={{ color: '#b42318' }}>{tipos.error}</small>}</label>
+      {tipos.error && <small className="msg-error">{tipos.error}</small>}</label>
     <label>Teléfono<input value={f.telefono} onChange={e => set('telefono')(e.target.value)} /></label>
     <label>Correo de contacto<input type="email" value={f.correo} onChange={e => set('correo')(e.target.value)} /></label>
-    {!lockCore && f.correo.trim() && <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 10, padding: 12, background: '#fbfcfd' }}>
+    {!lockCore && f.correo.trim() && <div className="code-box">
       <label>Código de verificación del correo<b>*</b>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="row">
           <input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} placeholder="6 dígitos" value={f.codigo} onChange={e => set('codigo')(e.target.value.replace(/\D/g, ''))} />
-          <button type="button" className="secondary-btn" disabled={sending} onClick={sendCode} style={{ whiteSpace: 'nowrap' }}>{sending ? 'Enviando…' : codeMsg ? 'Reenviar código' : 'Enviar código'}</button>
+          <button type="button" className="secondary-btn" disabled={sending} onClick={sendCode}>{sending ? 'Enviando…' : codeMsg ? 'Reenviar código' : 'Enviar código'}</button>
         </div></label>
-      <small style={{ color: 'var(--muted)', fontSize: 11 }}>Pídele a la persona el código que llegó a {f.correo.trim()}.</small>
-      {codeMsg && <p style={{ margin: '6px 0 0', fontSize: 12, color: '#26745b' }}>{codeMsg}</p>}
-      {codeErr && <p role="alert" style={{ margin: '6px 0 0', fontSize: 12, color: '#b42318' }}>{codeErr}</p>}
+      <small>Pídele a la persona el código que llegó a {f.correo.trim()}.</small>
+      {codeMsg && <p className="msg-ok">{codeMsg}</p>}
+      {codeErr && <p role="alert" className="msg-error">{codeErr}</p>}
     </div>}
-    <label style={{ flexDirection: 'row', gap: 8 }}><input type="checkbox" disabled={lockCore} checked={f.autoriza} onChange={e => setF({ ...f, autoriza: e.target.checked })} style={{ width: 'auto' }} /> Autoriza el tratamiento de datos</label>
+    <label><input type="checkbox" disabled={lockCore} checked={f.autoriza} onChange={e => setF({ ...f, autoriza: e.target.checked })} /> Autoriza el tratamiento de datos</label>
   </>
 }
 
@@ -227,10 +261,11 @@ export function CuentasPage({ notify, myAccountId }: { notify: Notify; myAccount
     {items === null ? <Loading /> : <div className="panel table-panel"><div className="table-wrap"><table>
       <thead><tr><th>Correo</th><th>Rol</th><th>Persona</th><th>Último acceso</th><th>Estado</th><th>Acciones</th></tr></thead>
       <tbody>{(view.shown ?? []).map(c => <tr key={c.id}>
-        <td>{c.correo}</td><td>{ROL_LABEL[c.rol]}</td><td>{c.personaId ?? '—'}</td>
+        <td><Correo value={c.correo} /></td><td>{ROL_LABEL[c.rol]}</td><td>{c.personaId ?? '—'}</td>
         <td>{c.fechaUltimoAcceso ? new Date(c.fechaUltimoAcceso).toLocaleString('es-CO') : '—'}</td>
         <td><Badge tone={c.activa ? 'green' : 'amber'}>{c.activa ? 'Activa' : 'Inactiva'}</Badge></td>
-        <td><div className="btn-group"><button className={c.activa ? 'danger' : ''} disabled={c.id === myAccountId} onClick={() => (c.activa ? setOff(c) : toggle(c))}>{c.activa ? 'Desactivar' : 'Reactivar'}</button></div></td>
+        <td><div className="btn-group"><button className={c.activa ? 'danger' : ''} disabled={c.id === myAccountId} onClick={() => (c.activa ? setOff(c) : toggle(c))}>{c.activa ? 'Desactivar' : 'Reactivar'}</button>
+          <EliminarBtn nombre={c.correo} disabled={c.id === myAccountId} notify={notify} run={() => api.cuentas.eliminar(c.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== c.id))} /></div></td>
       </tr>)}</tbody>
     </table></div><div className="table-foot"><span>{view.foot('cuentas')}</span></div></div>}
     {off && <ConfirmModal title={`Desactivar ${off.correo}`} confirmLabel="Desactivar cuenta" onClose={() => setOff(null)}
@@ -294,7 +329,7 @@ function NuevaCuentaModal({ onClose, onCreated }: { onClose: () => void; onCreat
 
   if (step === 1) return <Modal title="Nueva cuenta · Paso 1 de 2: datos de la persona" onClose={close}><form onSubmit={savePersona}>
     <div className="fields-grid"><PersonaFields f={persona} setF={setPersona} lockCore={!!created} /></div>
-    {created && <p style={{ fontSize: 13, margin: '8px 0' }}>Persona registrada (ID {created.id}). Puedes corregir nombres, apellidos, teléfono y correo.
+    {created && <p className="dialog-desc" style={{ margin: '14px 0 0' }}>Persona registrada (ID {created.id}). Puedes corregir nombres, apellidos, teléfono y correo.
       El documento y el tipo no se editan:{' '}<button type="button" className="row-action" disabled={busy} onClick={discard}>descartar y empezar de nuevo</button></p>}
     <ErrorLine message={error} />
     <div className="form-actions"><button type="button" className="secondary-btn" onClick={close}>Cancelar</button>
@@ -302,7 +337,7 @@ function NuevaCuentaModal({ onClose, onCreated }: { onClose: () => void; onCreat
   </form></Modal>
 
   return <Modal title="Nueva cuenta · Paso 2 de 2: datos de la cuenta" onClose={close}><form onSubmit={saveCuenta}>
-    <p style={{ fontSize: 13, margin: '0 0 12px' }}>Persona: <b>{created!.nombres} {created!.apellidos}</b> · {created!.tipoDocumento} {created!.numeroDocumento}</p>
+    <p className="dialog-desc">Persona: <b>{created!.nombres} {created!.apellidos}</b> · {created!.tipoDocumento} {created!.numeroDocumento}</p>
     <div className="fields-grid">
       <label>ID de persona<input disabled readOnly value={created!.id} /></label>
       <label>Rol<b>*</b><select value={rol} onChange={e => setRol(e.target.value as Rol)}>
@@ -366,7 +401,8 @@ export function CatalogosPage({ notify, isAdmin }: { notify: Notify; isAdmin: bo
         {isAdmin && <td>
           {editing?.id === c.id
             ? <div className="btn-group"><button onClick={rename}>Guardar</button><button onClick={() => setEditing(null)}>Cancelar</button></div>
-            : <div className="btn-group"><button onClick={() => setEditing({ id: c.id, nombre: c.nombre })}>Renombrar</button><button className={c.activo ? 'danger' : ''} onClick={() => toggle(c)}>{c.activo ? 'Desactivar' : 'Reactivar'}</button></div>}
+            : <div className="btn-group"><button onClick={() => setEditing({ id: c.id, nombre: c.nombre })}>Renombrar</button><button className={c.activo ? 'danger' : ''} onClick={() => toggle(c)}>{c.activo ? 'Desactivar' : 'Reactivar'}</button>
+              <EliminarBtn nombre={c.nombre} notify={notify} run={() => api.catalogos.eliminar(c.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== c.id))} /></div>}
         </td>}
       </tr>)}</tbody>
     </table></div><div className="table-foot"><span>{items.length} valores</span></div></div>}
@@ -440,7 +476,7 @@ export function ConfiguracionPage({ notify }: { notify: Notify }) {
   return <>
     <Header kicker="ADMINISTRACIÓN · PARAMETRIZACIÓN" title="Configuración" />
     <ErrorLine message={error} />
-    <form onSubmit={guardar} className="profile-card" style={{ padding: 20 }}>
+    <form onSubmit={guardar} className="profile-card">
       <h3>Parámetros generales</h3>
       {!general ? <p>Cargando…</p> : <>
         <div className="fields-grid">
@@ -454,16 +490,16 @@ export function ConfiguracionPage({ notify }: { notify: Notify }) {
         <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Guardar</button></div>
       </>}
     </form>
-    <section className="profile-card" style={{ marginTop: 16, padding: 20 }}>
+    <section className="profile-card">
       <h3>Notificaciones por evento</h3>
-      <p style={{ fontSize: 13, opacity: .75 }}>Desactivar un evento evita que se generen nuevas notificaciones (no afecta las ya creadas). El envío por correo se guarda, pero aún no está implementado en el servidor.</p>
-      {!eventos ? <p>Cargando…</p> : <table><thead><tr><th>Evento</th><th>Activa</th><th>Enviar correo</th></tr></thead><tbody>
+      <p className="dialog-desc">Desactivar un evento evita que se generen nuevas notificaciones (no afecta las ya creadas). El envío por correo se guarda, pero aún no está implementado en el servidor.</p>
+      {!eventos ? <p>Cargando…</p> : <div className="table-wrap"><table><thead><tr><th>Evento</th><th>Activa</th><th>Enviar correo</th></tr></thead><tbody>
         {eventos.map(c => <tr key={c.evento}>
           <td>{EVENTO_LABEL[c.evento] ?? c.evento}</td>
           <td><input type="checkbox" checked={c.activa} onChange={e => cambiar(c, { activa: e.target.checked })} aria-label={`Activar ${EVENTO_LABEL[c.evento]}`} /></td>
           <td><input type="checkbox" checked={c.enviarCorreo} onChange={e => cambiar(c, { enviarCorreo: e.target.checked })} aria-label={`Enviar correo ${EVENTO_LABEL[c.evento]}`} /></td>
         </tr>)}
-      </tbody></table>}
+      </tbody></table></div>}
     </section>
   </>
 }
@@ -479,16 +515,16 @@ export function OlvideContrasena({ onBack }: { onBack: () => void }) {
     try { await api.olvideContrasena(correo); setSent(true) } catch (err) { setError(errorMessage(err)) }
     setBusy(false)
   }
-  return <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
+  return <form className="form-card" onSubmit={submit}>
     <h3>Recuperar contraseña</h3>
-    {sent ? <p>Si el correo está registrado, te enviamos un enlace.</p> : <>
-      <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
+    {sent ? <p className="dialog-desc">Si el correo está registrado, te enviamos un enlace.</p> : <>
+      <div className="fields-grid one">
         <label>Correo<b>*</b><input name="correo" type="email" required autoComplete="off" /></label>
       </div>
       <ErrorLine message={error} />
       <div className="form-actions"><button className="primary-btn" disabled={busy}>{busy ? 'Enviando…' : 'Enviar enlace'}</button></div>
     </>}
-    <div className="form-actions"><button type="button" onClick={onBack} style={{ background: 'none', border: 0, textDecoration: 'underline', cursor: 'pointer' }}>Volver al ingreso</button></div>
+    <div className="form-actions"><button type="button" className="link-btn" onClick={onBack}>Volver al ingreso</button></div>
   </form>
 }
 
@@ -505,20 +541,20 @@ export function RestablecerContrasena() {
     try { await api.restablecerContrasena(tokenUrl!, nueva); setDone(true) } catch (err) { setError(errorMessage(err)) }
     setBusy(false)
   }
-  return <main className="welcome"><div className="welcome-inner">
-    <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
+  return <PublicFrame>
+    <form className="form-card" onSubmit={submit}>
       <h3>Restablecer contraseña</h3>
-      {tokenUrl === null ? <p>Cargando…</p>
-        : done ? <p>Contraseña actualizada. <a href="/">Ir al ingreso</a></p>
-        : !tokenUrl ? <p>El enlace no es válido. <a href="/">Volver al ingreso</a></p>
+      {tokenUrl === null ? <p className="dialog-desc">Cargando…</p>
+        : done ? <p className="dialog-desc">Contraseña actualizada. <a href="/">Ir al ingreso</a></p>
+        : !tokenUrl ? <p className="dialog-desc">El enlace no es válido. <a href="/">Volver al ingreso</a></p>
         : <>
-          <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
+          <div className="fields-grid one">
             <label>Nueva contraseña (8–72)<b>*</b><input name="nueva" type="password" required minLength={8} maxLength={72} autoComplete="new-password" /></label>
           </div>
           <ErrorLine message={error} />
-          {error && <p style={{ fontSize: 13 }}><a href="/">Volver al ingreso para pedir otro enlace</a></p>}
-          <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> {busy ? 'Guardando…' : 'Restablecer'}</button></div>
+          {error && <p className="dialog-desc"><a href="/">Volver al ingreso para pedir otro enlace</a></p>}
+          <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={17} /> {busy ? 'Guardando…' : 'Restablecer'}</button></div>
         </>}
     </form>
-  </div></main>
+  </PublicFrame>
 }

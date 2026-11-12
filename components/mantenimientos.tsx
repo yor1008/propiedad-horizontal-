@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { api, errorMessage, type Mantenimiento, type Zona } from '@/lib/api'
-import { Badge, ErrorLine, Header, Loading, useCatalog, useList } from './api-pages'
+import { Badge, EliminarBtn, ErrorLine, Header, Loading, useCatalog, useList } from './api-pages'
 import { FormModal, Select, Table, TextPrompt, replaceIn } from './modules'
 
 type Notify = (message: string) => void
@@ -37,6 +37,7 @@ export function MantenimientosPage({ notify }: { notify: Notify }) {
           {m.estado === 'Programado' && <><button onClick={() => iniciar(m)}>Iniciar</button><button onClick={() => setForm({ edit: m })}>Editar</button></>}
           {m.estado === 'En curso' && <button onClick={() => { setObs(''); setFinish(m) }}>Finalizar</button>}
           {(m.estado === 'Programado' || m.estado === 'En curso') && <button className="danger" onClick={() => setCancel(m)}>Cancelar</button>}
+          {m.estado === 'Programado' && <EliminarBtn nombre={`mantenimiento: ${m.elementoArea}`} notify={notify} run={() => api.mantenimientos.eliminar(m.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== m.id))} />}
         </div></td>
       </tr>)}
     </Table>}

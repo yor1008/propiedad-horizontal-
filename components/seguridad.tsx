@@ -7,7 +7,7 @@ import {
   type DirectorioInmueble, type MiInmueble, type Notificacion, type Parqueadero, type PreRegistro,
   type RespuestaResidente, type TipoVigencia, type Visita,
 } from '@/lib/api'
-import { Badge, ErrorLine, Header, Loading, useCatalog, useList } from './api-pages'
+import { Badge, ErrorLine, Header, Loading, Placa, Unidad, useCatalog, useList } from './api-pages'
 import { FormModal, Select, Table, fecha, replaceIn } from './modules'
 
 type Notify = (message: string) => void
@@ -35,7 +35,7 @@ export function PreRegistrosPage({ notify }: { notify: Notify }) {
       {items.map(p => <tr key={p.id}>
         <td>{p.visitante}{p.motivo && <><br /><small>{p.motivo}</small></>}</td><td>{p.numeroDocumento}</td>
         <td>{p.tipoVigencia === 'PERMANENTE' ? 'Permanente' : dia(p.fechaPrevista)}</td>
-        <td>{p.placaVehiculo ? `${p.placaVehiculo}${p.tipoVehiculo ? ` · ${p.tipoVehiculo}` : ''}` : '—'}</td>
+        <td>{p.placaVehiculo ? <><Placa value={p.placaVehiculo} />{p.tipoVehiculo && <small> {p.tipoVehiculo}</small>}</> : '—'}</td>
         <td><Badge tone={p.vigente ? 'green' : p.usado ? 'neutral' : 'amber'}>{!p.activo ? 'Cancelado' : p.usado ? 'Usado' : p.vigente ? 'Vigente' : 'Programado'}</Badge></td>
         <td>{p.activo && !p.usado && <div className="btn-group"><button className="danger" onClick={() => cancelar(p)}>Cancelar</button></div>}</td>
       </tr>)}
@@ -88,7 +88,7 @@ export function AutorizarIngresoPage({ notify }: { notify: Notify }) {
       <button className="primary-btn">Buscar preregistro</button>
     </form>
     <ErrorLine message={error} />
-    {last && <div className="panel" style={{ padding: 16, marginBottom: 12 }}>
+    {last && <div className="panel result-note" style={{ marginBottom: 12 }}>
       <b>{last.visitante}</b> ingresó a <b>{last.inmueble}</b> · {fecha(last.fechaHoraEntrada)} <Badge tone="green">{last.estado}</Badge>
     </div>}
     {results !== null && (results.length === 0
@@ -96,7 +96,7 @@ export function AutorizarIngresoPage({ notify }: { notify: Notify }) {
       : <Table head={['Visitante', 'Residente', 'Inmueble', 'Vigencia', 'Vehículo', 'Acciones']} foot={`${results.length} preregistros`}>
         {results.map(p => <tr key={p.id}>
           <td>{p.visitante}</td><td>{p.residente}</td><td>{p.inmueble}</td>
-          <td>{p.tipoVigencia === 'PERMANENTE' ? 'Permanente' : dia(p.fechaPrevista)}</td><td>{p.placaVehiculo ?? '—'}</td>
+          <td>{p.tipoVigencia === 'PERMANENTE' ? 'Permanente' : dia(p.fechaPrevista)}</td><td>{p.placaVehiculo ? <Placa value={p.placaVehiculo} /> : '—'}</td>
           <td><div className="btn-group"><button onClick={() => autorizar(p)}>Autorizar ingreso</button></div></td>
         </tr>)}
       </Table>)}
@@ -138,7 +138,7 @@ export function IngresoSinPreregistroPage({ notify }: { notify: Notify }) {
   return <>
     <Header kicker="SEGURIDAD · ACCESO" title="Ingreso sin preregistro" />
     <ErrorLine message={directorio.error} />
-    {last && <div className="panel" style={{ padding: 16, marginBottom: 12 }}>
+    {last && <div className="panel result-note" style={{ marginBottom: 12 }}>
       <b>{last.visitante}</b> → <b>{last.inmueble}</b> <Badge tone={visitaTone(last.estado)}>{last.estado}</Badge>{last.motivoNegacion && <small> · {last.motivoNegacion}</small>}
     </div>}
     <form className="form-card" onSubmit={submit}>
@@ -213,8 +213,8 @@ export function HistorialPage() {
   return <>
     <Header kicker="SEGURIDAD · REGISTRO" title="Historial de accesos" />
     <form className="table-toolbar" style={{ marginBottom: 12, flexWrap: 'wrap' }} onSubmit={e => { e.preventDefault(); load() }}>
-      <label style={{ fontSize: 12 }}>Desde <input type="date" value={f.desde} onChange={e => setF({ ...f, desde: e.target.value })} /></label>
-      <label style={{ fontSize: 12 }}>Hasta <input type="date" value={f.hasta} onChange={e => setF({ ...f, hasta: e.target.value })} /></label>
+      <label>Desde <input type="date" value={f.desde} onChange={e => setF({ ...f, desde: e.target.value })} /></label>
+      <label>Hasta <input type="date" value={f.hasta} onChange={e => setF({ ...f, hasta: e.target.value })} /></label>
       <div className="search-field"><Search size={16} /><input value={f.documento} onChange={e => setF({ ...f, documento: e.target.value })} placeholder="Documento" /></div>
       <button className="primary-btn">Filtrar</button>
       <button type="button" className="secondary-btn" onClick={() => { const e = { desde: '', hasta: '', documento: '' }; setF(e); load(e) }}>Limpiar</button>
@@ -251,7 +251,7 @@ export function NotificacionesPage({ notify, onUnread }: { notify: Notify; onUnr
   return <>
     <Header kicker="TRANSVERSAL · SEGUIMIENTO" title="Notificaciones">
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={soloNoLeidas} onChange={e => setSolo(e.target.checked)} /> Solo no leídas</label>
+        <label className="check"><input type="checkbox" checked={soloNoLeidas} onChange={e => setSolo(e.target.checked)} /> Solo no leídas</label>
         <button className="secondary-btn" onClick={leerTodas}><Check size={16} /> Marcar todas como leídas</button>
       </div>
     </Header>
@@ -273,10 +273,12 @@ export function MiInmueblePage() {
     <Header kicker="ADMINISTRACIÓN · PROPIEDAD" title="Mi inmueble" />
     <ErrorLine message={error} />
     {items === null ? <Loading /> : !items.length ? <div className="empty-panel"><p>No tienes un inmueble como propietario con vínculo vigente.</p></div>
-      : items.map(i => <div className="panel" key={i.id} style={{ padding: 20, marginBottom: 12 }}>
-        <h3>{i.torreBloque}-{i.numero} <Badge tone={!i.activo ? 'amber' : i.ocupado ? 'green' : 'neutral'}>{!i.activo ? 'Inactivo' : i.ocupado ? 'Ocupado' : 'Disponible'}</Badge></h3>
-        <p>{i.tipo} · Piso {i.piso}</p>
-        <p><b>Parqueaderos:</b> {i.parqueaderos.length ? i.parqueaderos.map(p => `${p.torreBloque}-${p.numero}`).join(', ') : 'ninguno asignado'}</p>
+      : items.map(i => <div className="panel" key={i.id} style={{ marginBottom: 12 }}>
+        <h3 className="result-head"><Unidad value={`${i.torreBloque}-${i.numero}`} /> <Badge tone={!i.activo ? 'amber' : i.ocupado ? 'green' : 'neutral'}>{!i.activo ? 'Inactivo' : i.ocupado ? 'Ocupado' : 'Disponible'}</Badge></h3>
+        <dl className="kv">
+          <div><dt>Tipo</dt><dd>{i.tipo}</dd></div><div><dt>Piso</dt><dd>{i.piso}</dd></div>
+          <div><dt>Parqueaderos</dt><dd>{i.parqueaderos.length ? i.parqueaderos.map(p => `${p.torreBloque}-${p.numero}`).join(', ') : 'Ninguno asignado'}</dd></div>
+        </dl>
       </div>)}
   </>
 }

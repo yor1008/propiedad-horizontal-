@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import TableLabels from './table-labels'
 import { api, errorMessage, token, type Me } from '@/lib/api'
+import { BrandMark, PublicFrame } from './brand'
 import {
-  Activity, Bell, Building2, CalendarDays, Car, Check, ChevronDown, ClipboardList, Clock3, DoorOpen,
-  FileText, Home, KeyRound, Settings, LogOut, Menu, Package, ParkingSquare, Search, Shield, UserRound, Users, Wrench,
+  Activity, Bell, Building2, CalendarDays, Car, Check, ClipboardList, Clock3, DoorOpen,
+  FileText, Home, KeyRound, Settings, LogOut, Menu, Package, ParkingSquare, Search, UserRound, Users, Wrench,
 } from 'lucide-react'
 
 const roles = {
@@ -76,7 +77,8 @@ function primaryModule(roles: RoleKey[]): Module {
   if (roles.includes('owner')) return 'Administración'
   return 'Operaciones'
 }
-const moduleIcon = (m: Module) => (m === 'Administración' ? Building2 : m === 'Operaciones' ? ClipboardList : m === 'Seguridad' ? Shield : Activity)
+// Nombre que ve la persona; Transversal es el nombre interno del grupo con su perfil y avisos.
+const MODULE_LABEL: Record<Module, string> = { Administración: 'Administración', Operaciones: 'Operaciones', Seguridad: 'Seguridad', Transversal: 'Mi cuenta' }
 
 // Primera pantalla disponible: módulo propio del actor, luego los demás, Transversal al final.
 function landingFor(roles: RoleKey[]): { module: Module; page: string } {
@@ -89,8 +91,12 @@ function landingFor(roles: RoleKey[]): { module: Module; page: string } {
   return { module: main, page: '' }
 }
 
+// "carolina.mejia@…" → nombre "carolina mejia" (la hoja de estilos lo pone en mayúscula inicial) e iniciales "CM".
 function profileFromMe(me: Me, key: RoleKey): Profile {
-  return { ...roles[key], name: me.correo.split('@')[0], email: me.correo, initials: me.correo.slice(0, 2).toUpperCase() }
+  const name = me.correo.split('@')[0].replace(/[._-]+/g, ' ').trim()
+  const words = name.split(' ').filter(Boolean)
+  const initials = (words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2)).toUpperCase()
+  return { ...roles[key], name, email: me.correo, initials }
 }
 type Module = 'Administración' | 'Operaciones' | 'Seguridad' | 'Transversal'
 
@@ -184,31 +190,43 @@ export default function Page() {
 
   const currentRole = me && user ? profileFromMe(me, user) : null
 
-  function selectPage(m: Module, label: string) { setModule(m); setPage(label); setMobileNav(false) }
+  function selectPage(m: Module, label: string) { setModule(m); setPage(label); setMobileNav(false); window.scrollTo(0, 0) }
 
-  if (booting) return <main className="welcome"><div className="welcome-inner"><p>Cargando…</p></div></main>
-  if (!user) return <><Welcome onLogin={login} />{toast && <div className="toast">{toast}</div>}</>
+  if (booting) return <main className="boot" aria-busy="true" aria-label="Cargando"><BrandMark size={48} /></main>
+  if (!user) return <><Welcome onLogin={login} />{toast && <div className="toast" role="status">{toast}</div>}</>
 
-  const renderSection = (sec: (typeof sections)[number]) => { const SIcon = moduleIcon(sec.module); return <div key={sec.module}>
-    <div className="module-label"><SIcon size={15} /> {sec.module}</div>
-    <nav>{sec.items.map(item => { const Icon = item.icon; return <button key={item.label} className={activeModule === sec.module && page === item.label ? 'active' : ''} onClick={() => selectPage(sec.module, item.label)}><Icon size={17} /><span>{item.label}</span>{item.label === 'Notificaciones' && unread > 0 && <b>{unread}</b>}</button> })}</nav>
-  </div> }
+  const renderSection = (sec: (typeof sections)[number]) => <div key={sec.module}>
+    <div className="module-label">{MODULE_LABEL[sec.module]}</div>
+    <nav>{sec.items.map(item => {
+      const Icon = item.icon
+      const on = activeModule === sec.module && page === item.label
+      return <button key={item.label} className={on ? 'active' : ''} aria-current={on ? 'page' : undefined} onClick={() => selectPage(sec.module, item.label)}><Icon size={19} /><span>{item.label}</span>{item.label === 'Notificaciones' && unread > 0 && <b>{unread}</b>}</button>
+    })}</nav>
+  </div>
   return <div className="app-shell">
     <TableLabels />
     {mobileNav && <div className="sidebar-backdrop" onClick={() => setMobileNav(false)} aria-hidden="true" />}
-    <aside className={`sidebar ${mobileNav ? 'open' : ''}`}>
-      <div className="brand"><span className="brand-mark"><Building2 size={18} /></span><div><strong>Torres del Parque</strong><small>Gestión residencial</small></div></div>
+    <aside className={`sidebar ${mobileNav ? 'open' : ''}`} aria-label="Menú principal">
+      <div className="brand"><BrandMark /><div><strong>Torres del Parque</strong><small>Gestión residencial</small></div></div>
       <div className="sidebar-scroll">{sections.filter(sec => sec.module !== 'Transversal').map(renderSection)}</div>
       <div className="sidebar-common">{sections.filter(sec => sec.module === 'Transversal').map(renderSection)}</div>
-      <div className="sidebar-bottom"><button onClick={logout}><LogOut size={17} /> Cerrar sesión</button></div>
+      <div className="sidebar-user"><span>{currentRole!.initials}</span><div><strong>{currentRole!.name}</strong><small>{currentRole!.role}</small></div></div>
+      <div className="sidebar-bottom"><button onClick={logout}><LogOut size={19} /> Cerrar sesión</button></div>
     </aside>
     <main className="main-area">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label="Abrir menú"><Menu /></button><div><p className="eyebrow">{activeModule} / {page}</p><h1>{page}</h1></div><div className="top-actions">{esPersona && <button className="notification" onClick={() => selectPage('Transversal', 'Notificaciones')} aria-label="Notificaciones"><Bell size={19} />{unread > 0 && <i>{unread}</i>}</button>}<div className="user-chip"><span>{currentRole!.initials}</span><div><strong>{currentRole!.name}</strong><small>{currentRole!.role}</small></div><ChevronDown size={15} /></div></div></header>
+      <header className="topbar">
+        <button className="mobile-menu" onClick={() => setMobileNav(!mobileNav)} aria-label="Abrir menú" aria-expanded={mobileNav}><Menu size={22} /></button>
+        <div className="topbar-title"><h1>{page}</h1></div>
+        <div className="top-actions">
+          {esPersona && <button className="notification" onClick={() => selectPage('Transversal', 'Notificaciones')} aria-label={unread > 0 ? `Notificaciones, ${unread} sin leer` : 'Notificaciones'}><Bell size={21} />{unread > 0 && <i>{unread}</i>}</button>}
+          <div className="user-chip"><span>{currentRole!.initials}</span><div><strong>{currentRole!.name}</strong><small>{currentRole!.role}</small></div></div>
+        </div>
+      </header>
       <div className="content">
         {page === 'Personas' ? <PersonasPage notify={flash} /> : page === 'Inmuebles' ? <InmueblesPage notify={flash} /> : page === 'Vinculaciones' ? <VinculacionesPage notify={flash} /> : page === 'Vehículos' ? <VehiculosPage notify={flash} /> : page === 'Consultar por placa' ? <ConsultaPlacaPage /> : page === 'Parqueaderos' ? <ParqueaderosPage notify={flash} /> : page === 'Correspondencia' ? <CorrespondenciaPage notify={flash} isGuard={user === 'guard'} /> : page === 'Radicar PQRS' ? <RadicarPqrsPage notify={flash} onDone={() => setPage('Mis PQRS')} /> : page === 'Mis PQRS' ? <PqrsListPage notify={flash} admin={false} /> : page === 'Atender PQRS' ? <PqrsListPage notify={flash} admin /> : page === 'Zonas comunes' ? <ZonasPage notify={flash} /> : page === 'Reservar zona' ? <ReservarPage notify={flash} onDone={() => setPage('Mis reservas')} /> : page === 'Mis reservas' ? <ReservasPage notify={flash} admin={false} /> : page === 'Gestionar reservas' ? <ReservasPage notify={flash} admin /> : page === 'Preregistros' ? <PreRegistrosPage notify={flash} /> : page === 'Autorizar ingreso' ? <AutorizarIngresoPage notify={flash} /> : page === 'Ingreso sin preregistro' ? <IngresoSinPreregistroPage notify={flash} /> : page === 'Parqueadero visitante' ? <AccesosDentroPage notify={flash} mode="parqueadero" /> : page === 'Registrar salida' ? <AccesosDentroPage notify={flash} mode="salida" /> : page === 'Visitantes dentro' ? <AccesosDentroPage notify={flash} mode="ver" /> : page === 'Historial de accesos' ? <HistorialPage /> : page === 'Notificaciones' ? <NotificacionesPage notify={flash} onUnread={setUnread} /> : page === 'Mi inmueble' ? <MiInmueblePage /> : page === 'Mantenimientos' ? <MantenimientosPage notify={flash} /> : page === 'Cuentas' ? <CuentasPage notify={flash} myAccountId={me!.cuentaId} /> : page === 'Catálogos' ? <CatalogosPage notify={flash} isAdmin={user === 'admin'} /> : page === 'Configuración' ? <ConfiguracionPage notify={flash} /> : page === 'Mi perfil' ? <PerfilPage me={me!} notify={flash}><CambiarContrasena notify={flash} /></PerfilPage> : null}
       </div>
     </main>
-    {toast && <div className="toast"><Check size={17} /> {toast}</div>}
+    {toast && <div className="toast" role="status"><Check size={18} /> {toast}</div>}
   </div>
 }
 
@@ -225,19 +243,18 @@ function Welcome({ onLogin }: { onLogin: (correo: string, contrasena: string) =>
     const contrasena = String(data.get('contrasena') ?? '')
     try { await onLogin(correo, contrasena) } catch (err) { setError(errorMessage(err)); setBusy(false) }
   }
-  return <main className="welcome"><img className="welcome-art" src="/login-hero.webp" alt="" aria-hidden="true" fetchPriority="high" decoding="async" /><div className="welcome-inner">
-    <div className="brand centered"><span className="brand-mark"><Building2 size={20} /></span><div><strong>Torres del Parque</strong><small>Gestión residencial</small></div></div>
-    <div className="welcome-copy"><span className="kicker">PLATAFORMA INTEGRAL</span><h1>Todo el conjunto,<br /><em>en un solo lugar.</em></h1><p>Administra, opera y protege tu comunidad residencial con información clara y decisiones oportunas.</p></div>
-    {olvide ? <OlvideContrasena onBack={() => setOlvide(false)} /> : <form className="form-card" onSubmit={submit} style={{ maxWidth: 420 }}>
-      <div className="fields-grid" style={{ gridTemplateColumns: '1fr' }}>
+  return <PublicFrame>
+    <div className="welcome-copy"><h1>Todo el conjunto, en un solo lugar.</h1><p>Administra, opera y protege tu comunidad residencial con información clara y decisiones oportunas.</p></div>
+    {olvide ? <OlvideContrasena onBack={() => setOlvide(false)} /> : <form className="form-card" onSubmit={submit}>
+      <div className="fields-grid one">
         <label>Correo<b>*</b><input name="correo" type="email" required autoComplete="username" /></label>
         <label>Contraseña<b>*</b><input name="contrasena" type="password" required autoComplete="current-password" /></label>
       </div>
-      {error && <p role="alert" style={{ color: '#b42318', fontSize: 13 }}>{error}</p>}
-      <div className="form-actions" style={{ justifyContent: 'center' }}><button className="primary-btn" disabled={busy}><KeyRound size={16} /> {busy ? 'Ingresando…' : 'Ingresar'}</button></div>
-      <div style={{ textAlign: 'center', marginTop: 12 }}><button type="button" onClick={() => setOlvide(true)} style={{ background: 'none', border: 0, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}>¿Olvidaste tu contraseña?</button></div>
+      {error && <p className="msg-error" role="alert">{error}</p>}
+      <div className="form-actions"><button className="primary-btn" disabled={busy}><KeyRound size={17} /> {busy ? 'Ingresando…' : 'Ingresar'}</button></div>
+      <div className="form-actions"><button type="button" className="link-btn" onClick={() => setOlvide(true)}>¿Olvidaste tu contraseña?</button></div>
     </form>}
-  </div></main>
+  </PublicFrame>
 }
 
 

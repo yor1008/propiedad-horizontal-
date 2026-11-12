@@ -244,6 +244,7 @@ export const api = {
     listar: () => request<Cuenta[]>('/api/cuentas'),
     obtener: (id: number) => request<Cuenta>(`/api/cuentas/${id}`),
     crear: (c: NuevaCuenta) => request<Cuenta>('/api/cuentas', { method: 'POST', body: c }),
+    eliminar: (id: number) => request<void>(`/api/cuentas/${id}`, { method: 'DELETE' }),
     desactivar: (id: number) => request<Cuenta>(`/api/cuentas/${id}/desactivar`, { method: 'PATCH' }),
     reactivar: (id: number) => request<Cuenta>(`/api/cuentas/${id}/reactivar`, { method: 'PATCH' }),
   },
@@ -253,6 +254,7 @@ export const api = {
     todos: (tipo: TipoCatalogo) => request<Catalogo[]>(`/api/catalogos/${tipo}/todos`),
     crear: (tipo: TipoCatalogo, nombre: string) =>
       request<Catalogo>('/api/catalogos', { method: 'POST', body: { tipo, nombre } }).then(dropCatalogs),
+    eliminar: (id: number) => request<void>(`/api/catalogos/${id}`, { method: 'DELETE' }).then(dropCatalogs),
     renombrar: (id: number, nombre: string) =>
       request<Catalogo>(`/api/catalogos/${id}`, { method: 'PUT', body: { nombre } }).then(dropCatalogs),
     desactivar: (id: number) => request<Catalogo>(`/api/catalogos/${id}/desactivar`, { method: 'PATCH' }).then(dropCatalogs),
@@ -299,6 +301,7 @@ export const api = {
   vehiculos: {
     listar: () => request<Vehiculo[]>('/api/vehiculos'),
     obtener: (id: number) => request<Vehiculo>(`/api/vehiculos/${id}`),
+    eliminar: (id: number) => request<void>(`/api/vehiculos/${id}`, { method: 'DELETE' }),
     porPlaca: (placa: string) => request<Vehiculo>(`/api/vehiculos/placa/${encodeURIComponent(placa)}`),
     crear: (v: { personaId: number; inmuebleId: number; placa: string; tipoId: number; marca: string; color: string }) =>
       request<Vehiculo>('/api/vehiculos', { method: 'POST', body: v }),
@@ -312,6 +315,7 @@ export const api = {
     listar: () => request<Parqueadero[]>('/api/parqueaderos'),
     crear: (p: { torreBloque: string; numero: string; piso: number; tipoId: number }) =>
       request<Parqueadero>('/api/parqueaderos', { method: 'POST', body: p }),
+    eliminar: (id: number) => request<void>(`/api/parqueaderos/${id}`, { method: 'DELETE' }),
     asignar: (id: number, inmuebleId: number) =>
       request<Parqueadero>(`/api/parqueaderos/${id}/asignar`, { method: 'PATCH', body: { inmuebleId } }),
     liberar: (id: number) => request<Parqueadero>(`/api/parqueaderos/${id}/liberar`, { method: 'PATCH' }),
@@ -334,6 +338,7 @@ export const api = {
     mias: () => request<Pqrs[]>('/api/pqrs/mias'),
     radicar: (p: { tipoId: number; asunto: string; descripcion: string; adjunto?: string }) =>
       request<Pqrs>('/api/pqrs', { method: 'POST', body: p }),
+    eliminar: (id: number) => request<void>(`/api/pqrs/${id}`, { method: 'DELETE' }),
     atender: (id: number, respuesta: string) =>
       request<Pqrs>(`/api/pqrs/${id}/atender`, { method: 'PATCH', body: { respuesta } }),
   },
@@ -341,6 +346,7 @@ export const api = {
   zonas: {
     activas: () => request<Zona[]>('/api/zonas-comunes'),
     todas: () => request<Zona[]>('/api/zonas-comunes/todas'),
+    eliminar: (id: number) => request<void>(`/api/zonas-comunes/${id}`, { method: 'DELETE' }),
     disponibilidad: (id: number, fecha: string) => request<Disponibilidad>(`/api/zonas-comunes/${id}/disponibilidad?fecha=${fecha}`),
     crear: (z: NuevaZona) => request<Zona>('/api/zonas-comunes', { method: 'POST', body: z }),
     actualizar: (id: number, z: NuevaZona) => request<Zona>(`/api/zonas-comunes/${id}`, { method: 'PUT', body: z }),
@@ -353,6 +359,7 @@ export const api = {
     listar: () => request<Reserva[]>('/api/reservas'),
     crear: (r: { zonaId: number; fecha: string; horaInicio: string; horaFin: string; numeroAsistentes: number; motivo?: string }) =>
       request<Reserva>('/api/reservas', { method: 'POST', body: r }),
+    eliminar: (id: number) => request<void>(`/api/reservas/${id}`, { method: 'DELETE' }),
     cancelar: (id: number, motivo: string) => request<Reserva>(`/api/reservas/${id}/cancelar`, { method: 'PATCH', body: { motivo } }),
     aprobar: (id: number, condiciones?: string) => request<Reserva>(`/api/reservas/${id}/aprobar`, { method: 'PATCH', body: condiciones ? { condiciones } : {} }),
     rechazar: (id: number, motivo: string) => request<Reserva>(`/api/reservas/${id}/rechazar`, { method: 'PATCH', body: { motivo } }),
@@ -364,6 +371,7 @@ export const api = {
     listar: () => request<Mantenimiento[]>('/api/mantenimientos'),
     crear: (m: NuevoMantenimiento) => request<Mantenimiento>('/api/mantenimientos', { method: 'POST', body: m }),
     actualizar: (id: number, m: EdicionMantenimiento) => request<Mantenimiento>(`/api/mantenimientos/${id}`, { method: 'PUT', body: m }),
+    eliminar: (id: number) => request<void>(`/api/mantenimientos/${id}`, { method: 'DELETE' }),
     iniciar: (id: number) => request<Mantenimiento>(`/api/mantenimientos/${id}/iniciar`, { method: 'PATCH' }),
     finalizar: (id: number, observaciones?: string) =>
       request<Mantenimiento>(`/api/mantenimientos/${id}/finalizar`, { method: 'PATCH', body: observaciones ? { observaciones } : {} }),

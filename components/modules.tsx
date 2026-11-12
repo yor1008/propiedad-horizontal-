@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Check, Home, IdCard, Mail, Plus, Search, Shield, UserRound } from 'lucide-react'
+import { Check, Plus, Search, UserRound } from 'lucide-react'
 import {
   api, errorMessage,
   type Catalogo, type Correspondencia, type Inmueble, type Parqueadero, type Persona, type Pqrs,
   type DirectorioInmueble, type Me, type TipoCatalogo, type Vehiculo,
 } from '@/lib/api'
-import { Badge, ConfirmModal, FormModal, TextPrompt, useFilter, emptyPersona, ErrorLine, formFromPersona, Header, Loading, Modal, PersonaFields, personaEdit, personaPayload, useCatalog, useList, useTiposPersona, type PersonaForm } from './api-pages'
+import { Badge, EliminarBtn, ConfirmModal, FormModal, TextPrompt, useFilter, emptyPersona, ErrorLine, formFromPersona, Header, Loading, Modal, PersonaFields, personaEdit, personaPayload, Correo, Placa, Unidad, useCatalog, useList, useTiposPersona, type PersonaForm } from './api-pages'
 
 type Notify = (message: string) => void
 
@@ -59,7 +59,7 @@ export function PersonasPage({ notify }: { notify: Notify }) {
     {items === null ? <Loading /> : <Table head={['Nombre', 'Documento', 'Tipo', 'Contacto', 'Vínculo', 'Estado', 'Acciones']} foot={view.foot('personas')}>
       {(view.shown ?? []).map(p => <tr key={p.id}>
         <td>{p.nombres} {p.apellidos}</td><td>{p.tipoDocumento} {p.numeroDocumento}</td><td>{p.tipoPersona}</td>
-        <td>{p.correo ?? p.telefono ?? '—'}</td>
+        <td>{p.correo ? <Correo value={p.correo} /> : p.telefono ?? '—'}</td>
         <td>{p.vinculoVigente ? `Inmueble #${p.inmuebleId}` : 'Sin vínculo'}</td>
         <td><Badge tone={p.activa ? 'green' : 'amber'}>{p.activa ? 'Activa' : 'Inactiva'}</Badge></td>
         <td><div className="btn-group">
@@ -126,7 +126,7 @@ export function InmueblesPage({ notify }: { notify: Notify }) {
     {view.bar}
     {items === null ? <Loading /> : <Table head={['Inmueble', 'Piso', 'Tipo', 'Propietario', 'Estado', 'Acciones']} foot={view.foot('inmuebles')}>
       {(view.shown ?? []).map(i => <tr key={i.id}>
-        <td>{i.torreBloque}-{i.numero}</td><td>{i.piso}</td><td>{i.tipo}</td><td>{i.propietario ?? '—'}</td>
+        <td><Unidad value={`${i.torreBloque}-${i.numero}`} /></td><td>{i.piso}</td><td>{i.tipo}</td><td>{i.propietario ?? '—'}</td>
         <td><Badge tone={!i.activo ? 'amber' : i.ocupado ? 'green' : 'neutral'}>{!i.activo ? 'Inactivo' : i.ocupado ? 'Ocupado' : 'Disponible'}</Badge></td>
         <td><div className="btn-group">
           <button onClick={() => openEdit(i)}>Editar</button>
@@ -235,7 +235,7 @@ export function VinculacionesPage({ notify }: { notify: Notify }) {
           <button type="button" className="back-link" onClick={() => setSel(null)}>← Todos los inmuebles</button>
           <div className="panel detail-head">
             <div>
-              <h3>{actual.torreBloque}-{actual.numero}</h3>
+              <h3><Unidad value={`${actual.torreBloque}-${actual.numero}`} /></h3>
               <p>{actual.tipo} · Piso {actual.piso}{actual.propietario ? ` · Propietario: ${actual.propietario}` : ''}</p>
               <Badge tone={estado(actual)[1]}>{estado(actual)[0]}</Badge>
             </div>
@@ -305,9 +305,10 @@ export function VehiculosPage({ notify }: { notify: Notify }) {
     {view.bar}
     {items === null ? <Loading /> : <Table head={['Placa', 'Tipo', 'Marca / color', 'Responsable', 'Inmueble', 'Estado', 'Acciones']} foot={view.foot('vehículos')}>
       {(view.shown ?? []).map(v => <tr key={v.id}>
-        <td><b>{v.placa}</b></td><td>{v.tipo}</td><td>{v.marca} · {v.color}</td><td>{v.responsable}</td><td>{v.inmueble}</td>
+        <td><Placa value={v.placa} /></td><td>{v.tipo}</td><td>{v.marca} · {v.color}</td><td>{v.responsable}</td><td>{v.inmueble}</td>
         <td><Badge tone={v.activo ? 'green' : 'amber'}>{v.activo ? 'Activo' : 'Inactivo'}</Badge></td>
-        <td>{v.activo && <div className="btn-group"><button onClick={() => openEdit(v)}>Editar</button><button className="danger" onClick={() => setOff(v)}>Desactivar</button></div>}</td>
+        <td><div className="btn-group">{v.activo && <><button onClick={() => openEdit(v)}>Editar</button><button className="danger" onClick={() => setOff(v)}>Desactivar</button></>}
+          <EliminarBtn nombre={`vehículo ${v.placa}`} notify={notify} run={() => api.vehiculos.eliminar(v.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== v.id))} /></div></td>
       </tr>)}
     </Table>}
     {form && <FormModal title={form.edit ? `Editar ${form.edit.placa}` : 'Nuevo vehículo'} submitLabel="Guardar" onClose={() => setForm(null)} onSubmit={async () => {
@@ -351,9 +352,12 @@ export function ConsultaPlacaPage() {
       <button className="primary-btn">Buscar</button>
     </form>
     <ErrorLine message={error} />
-    {v && <div className="panel" style={{ padding: 20 }}>
-      <h3>{v.placa} <Badge tone={v.activo ? 'green' : 'amber'}>{v.activo ? 'Activo' : 'Inactivo'}</Badge></h3>
-      <p>{v.tipo} · {v.marca} · {v.color}</p><p>Responsable: <b>{v.responsable}</b> · Inmueble: <b>{v.inmueble}</b></p>
+    {v && <div className="panel">
+      <h3 className="result-head"><Placa value={v.placa} /> <Badge tone={v.activo ? 'green' : 'amber'}>{v.activo ? 'Activo' : 'Inactivo'}</Badge></h3>
+      <dl className="kv">
+        <div><dt>Tipo</dt><dd>{v.tipo}</dd></div><div><dt>Marca</dt><dd>{v.marca}</dd></div><div><dt>Color</dt><dd>{v.color}</dd></div>
+        <div><dt>Responsable</dt><dd>{v.responsable}</dd></div><div><dt>Inmueble</dt><dd>{v.inmueble}</dd></div>
+      </dl>
     </div>}
   </>
 }
@@ -385,9 +389,10 @@ export function ParqueaderosPage({ notify }: { notify: Notify }) {
       {(view.shown ?? []).map(p => <tr key={p.id}>
         <td>{p.torreBloque}-{p.numero}</td><td>{p.piso}</td><td>{p.tipo}</td><td>{p.inmuebleAsociado ?? '—'}</td>
         <td><Badge tone={!p.activo ? 'amber' : p.disponible ? 'green' : 'neutral'}>{!p.activo ? 'Inactivo' : p.disponible ? 'Disponible' : 'Asignado'}</Badge></td>
-        <td>{p.activo && <div className="btn-group">{p.disponible
+        <td><div className="btn-group">{p.activo && <>{p.disponible
           ? <button onClick={() => { setInm(''); setAssign(p) }}>Asignar</button>
-          : <button onClick={() => liberar(p)}>Liberar</button>}<button className="danger" onClick={() => setOff(p)}>Desactivar</button></div>}</td>
+          : <button onClick={() => liberar(p)}>Liberar</button>}<button className="danger" onClick={() => setOff(p)}>Desactivar</button></>}
+          <EliminarBtn nombre={`parqueadero ${p.torreBloque}-${p.numero}`} notify={notify} run={() => api.parqueaderos.eliminar(p.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== p.id))} /></div></td>
       </tr>)}
     </Table>}
     {open && <FormModal title="Nuevo parqueadero" submitLabel="Guardar" onClose={() => setOpen(false)} onSubmit={async () => {
@@ -436,10 +441,11 @@ export function CorrespondenciaPage({ notify, isGuard }: { notify: Notify; isGua
       <select value={filtro} onChange={e => setFiltro(e.target.value)} aria-label="Destinatario"><option value="">Todos los destinatarios</option>{residentes.map(r => <option key={r.id} value={r.id}>{r.texto}</option>)}</select>
     </div>}
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Remitente', 'Destinatario', 'Recepción', 'Tipo', 'Estado', ...(isGuard ? ['Acciones'] : [])]} foot={`${items.length} registros`}>
+    {items === null ? <Loading /> : <Table head={['Remitente', 'Destinatario', 'Recepción', 'Tipo', 'Estado', 'Entrega', ...(isGuard ? ['Acciones'] : [])]} foot={`${items.length} registros`}>
       {items.map(c => <tr key={c.id}>
-        <td>{c.remitente}</td><td>{c.destinatario ?? 'Inmueble'} · {c.inmueble}</td><td>{fecha(c.fechaRecepcion)}</td><td>{c.tipo}</td>
+        <td>{c.remitente}{c.descripcion && <small className="preview">{c.descripcion}</small>}</td><td>{c.destinatario ?? 'Inmueble'} · {c.inmueble}</td><td>{fecha(c.fechaRecepcion)}</td><td>{c.tipo}</td>
         <td><Badge tone={corrTone(c.estado)}>{c.estado}</Badge></td>
+        <td>{c.fechaEntrega ? <>{c.nombreRecibe ?? 'Entregada'}<small className="sub">{fecha(c.fechaEntrega)}</small></> : <span className="dash">—</span>}</td>
         {isGuard && <td>{!c.fechaEntrega && <div className="btn-group"><button onClick={() => { setD({ nombreRecibe: '', documentoRecibe: '' }); setDeliver(c) }}>Entregar</button></div>}</td>}
       </tr>)}
     </Table>}
@@ -494,23 +500,54 @@ export function RadicarPqrsPage({ notify, onDone }: { notify: Notify; onDone: ()
   </>
 }
 
+// Todo lo que la persona escribió y lo que se le respondió, completo. El administrador puede pasar de aquí a responder.
+function PqrsDetalle({ p, admin, onClose, onReply }: { p: Pqrs; admin: boolean; onClose: () => void; onReply: () => void }) {
+  return <Modal title={p.asunto} onClose={onClose}>
+    <div className="modal-body">
+      <div className="result-head"><Badge tone={pqrsTone(p)}>{p.estado}{p.vencida ? ' · vencida' : ''}</Badge></div>
+      <dl className="kv">
+        <div><dt>Tipo</dt><dd>{p.tipo}</dd></div>
+        <div><dt>Radicada</dt><dd>{fecha(p.fechaRadicacion)}</dd></div>
+        {admin && <div><dt>Solicitante</dt><dd>{p.solicitante}{p.inmueble ? ` · ${p.inmueble}` : ''}</dd></div>}
+        {p.adjunto && <div><dt>Adjunto</dt><dd>{p.adjunto}</dd></div>}
+      </dl>
+      <h4 className="block-title">Descripción</h4>
+      <p className="prose">{p.descripcion}</p>
+      {p.respuesta && <>
+        <h4 className="block-title">Respuesta · {fecha(p.fechaRespuesta)}</h4>
+        <p className="prose">{p.respuesta}</p>
+      </>}
+      <div className="form-actions">
+        <button type="button" className="secondary-btn" onClick={onClose}>Cerrar</button>
+        {admin && !p.respuesta && <button type="button" className="primary-btn" onClick={onReply}>Responder</button>}
+      </div>
+    </div>
+  </Modal>
+}
+
 // Persona vinculada: sus PQRS. Administrador: todas, con opción de responder.
 export function PqrsListPage({ notify, admin }: { notify: Notify; admin: boolean }) {
   const { items, setItems, error } = useList<Pqrs>(admin ? api.pqrs.listar : api.pqrs.mias, [admin])
+  const [view, setView] = useState<Pqrs | null>(null)
   const [attend, setAttend] = useState<Pqrs | null>(null)
   return <>
     <Header kicker={admin ? 'OPERACIONES · ATENCIÓN' : 'OPERACIONES · SOLICITUDES'} title={admin ? 'Atender PQRS' : 'Mis PQRS'} />
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Asunto', 'Tipo', ...(admin ? ['Solicitante'] : []), 'Radicada', 'Estado', 'Respuesta', ...(admin ? ['Acciones'] : [])]} foot={`${items.length} PQRS`}>
+    {items === null ? <Loading /> : <Table head={['Asunto', 'Tipo', ...(admin ? ['Solicitante'] : []), 'Radicada', 'Estado', 'Respuesta', 'Acciones']} foot={`${items.length} PQRS`}>
       {items.map(p => <tr key={p.id}>
-        <td>{p.asunto}</td><td>{p.tipo}</td>{admin && <td>{p.solicitante}{p.inmueble ? ` · ${p.inmueble}` : ''}</td>}
+        <td>{p.asunto}{p.descripcion && <small className="preview">{p.descripcion}</small>}</td><td>{p.tipo}</td>{admin && <td>{p.solicitante}{p.inmueble ? ` · ${p.inmueble}` : ''}</td>}
         <td>{fecha(p.fechaRadicacion)}</td>
         <td><Badge tone={pqrsTone(p)}>{p.estado}{p.vencida ? ' · vencida' : ''}</Badge></td>
-        <td>{p.respuesta ?? '—'}</td>
-        {admin && <td>{!p.respuesta && <div className="btn-group"><button onClick={() => setAttend(p)}>Responder</button></div>}</td>}
+        <td>{p.respuesta ? <span className="clamp">{p.respuesta}</span> : '—'}</td>
+        <td><div className="btn-group"><button onClick={() => setView(p)}>Ver</button>
+          {admin && !p.respuesta && <><button onClick={() => setAttend(p)}>Responder</button>
+            <EliminarBtn nombre={`PQRS: ${p.asunto}`} notify={notify} run={() => api.pqrs.eliminar(p.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== p.id))} /></>}</div></td>
       </tr>)}
     </Table>}
-    {attend && <TextPrompt title={`Responder: ${attend.asunto}`} label="Respuesta" area submitLabel="Enviar respuesta" description={`${attend.solicitante} recibirá una notificación con tu respuesta.`} onClose={() => setAttend(null)}
+    {view && <PqrsDetalle p={view} admin={admin} onClose={() => setView(null)} onReply={() => { setAttend(view); setView(null) }} />}
+    {attend && <TextPrompt title={`Responder: ${attend.asunto}`} label="Respuesta" area submitLabel="Enviar respuesta" onClose={() => setAttend(null)}
+      description={<>{attend.solicitante} recibirá una notificación con tu respuesta. Esto fue lo que escribió:
+        <blockquote className="quote">{attend.descripcion}{attend.adjunto && <small>Adjunto: {attend.adjunto}</small>}</blockquote></>}
       onSubmit={async r => { setItems(replaceIn(await api.pqrs.atender(attend.id, r))); setAttend(null); notify('PQRS respondida') }} />}
   </>
 }
@@ -539,13 +576,13 @@ export function PerfilPage({ me, notify, children }: { me: Me; notify: Notify; c
   const rolLabel = me.rol === 'ADMINISTRADOR' ? 'Administrador' : me.rol === 'VIGILANTE' ? 'Vigilante' : 'Persona vinculada'
   const nombre = esPersona && persona ? `${persona.nombres} ${persona.apellidos}` : me.correo.split('@')[0]
   const iniciales = (esPersona && persona ? `${persona.nombres[0] ?? ''}${persona.apellidos[0] ?? ''}` : me.correo.slice(0, 2)).toUpperCase()
-  const tiles: { icon: React.ReactNode; label: string; value: string }[] = [
-    { icon: <Shield size={16} />, label: 'Rol', value: rolLabel },
-    { icon: <Mail size={16} />, label: 'Correo de acceso', value: me.correo },
+  const datos: { label: string; value: string }[] = [
+    { label: 'Rol', value: rolLabel },
+    { label: 'Correo de acceso', value: me.correo },
     ...(esPersona && persona ? [
-      { icon: <IdCard size={16} />, label: 'Documento', value: `${persona.tipoDocumento} ${persona.numeroDocumento}` },
-      { icon: <UserRound size={16} />, label: 'Tipo de persona', value: persona.tipoPersona },
-      { icon: <Home size={16} />, label: 'Inmueble', value: persona.vinculoVigente ? `Inmueble #${persona.inmuebleId}` : 'Sin vínculo vigente' },
+      { label: 'Documento', value: `${persona.tipoDocumento} ${persona.numeroDocumento}` },
+      { label: 'Tipo de persona', value: persona.tipoPersona },
+      { label: 'Inmueble', value: persona.vinculoVigente ? `Inmueble #${persona.inmuebleId}` : 'Sin vínculo vigente' },
     ] : []),
   ]
 
@@ -556,7 +593,7 @@ export function PerfilPage({ me, notify, children }: { me: Me; notify: Notify; c
       <div className="pf-id"><h3>{nombre}</h3><p>{me.correo}</p></div>
       <div className="pf-tags"><Badge tone="neutral">{rolLabel}</Badge>{esPersona && persona && <Badge tone={persona.activa ? 'green' : 'amber'}>{persona.activa ? 'Activa' : 'Inactiva'}</Badge>}</div>
     </section>
-    <section className="pf-tiles">{tiles.map(t => <div className="pf-tile" key={t.label}><span className="pf-tile-icon">{t.icon}</span><small>{t.label}</small><strong>{t.value}</strong></div>)}</section>
+    <dl className="kv boxed">{datos.map(d => <div key={d.label}><dt>{d.label}</dt><dd>{d.value}</dd></div>)}</dl>
     <div className="pf-grid">
       <section className="pf-module">
         <div className="pf-module-head"><UserRound size={16} /><h4>Datos personales</h4></div>
@@ -566,7 +603,7 @@ export function PerfilPage({ me, notify, children }: { me: Me; notify: Notify; c
           <div className="form-actions"><button className="primary-btn" disabled={busy}><Check size={16} /> Guardar cambios</button></div>
         </form>)}
         {esPersona && persona === null && <ErrorLine message={error} />}
-        {!esPersona && <p style={{ fontSize: 13, color: 'var(--muted)' }}>Esta cuenta no tiene una persona asociada para editar. Puedes cambiar tu contraseña en el módulo de seguridad.</p>}
+        {!esPersona && <p>Esta cuenta no tiene una persona asociada para editar. Puedes cambiar tu contraseña en el módulo de seguridad.</p>}
       </section>
       {children}
     </div>

@@ -6,7 +6,7 @@ import {
   api, DIAS_SEMANA, errorMessage,
   type Disponibilidad, type Horario, type NuevaZona, type PeriodoLimite, type Reserva, type TipoUsoZona, type Zona,
 } from '@/lib/api'
-import { Badge, ErrorLine, Header, Loading, useList } from './api-pages'
+import { Badge, EliminarBtn, ErrorLine, Header, Loading, useList } from './api-pages'
 import { FormModal, Select, Table, TextPrompt, fecha, replaceIn } from './modules'
 
 type Notify = (message: string) => void
@@ -64,7 +64,8 @@ export function ZonasPage({ notify }: { notify: Notify }) {
         <td>{z.horarios.map(h => `${dia(h.diaSemana).slice(0, 3)} ${hh(h.horaInicio)}–${hh(h.horaFin)}`).join(' · ')}</td>
         <td><Badge tone={z.activa ? 'green' : 'amber'}>{z.activa ? 'Activa' : 'Inactiva'}</Badge></td>
         <td><div className="btn-group"><button onClick={() => setForm({ edit: z })}>Editar</button>
-          {z.activa ? <button className="danger" onClick={() => setOff(z)}>Desactivar</button> : <button onClick={() => reactivar(z)}>Reactivar</button>}</div></td>
+          {z.activa ? <button className="danger" onClick={() => setOff(z)}>Desactivar</button> : <button onClick={() => reactivar(z)}>Reactivar</button>}
+          <EliminarBtn nombre={z.nombre} notify={notify} run={() => api.zonas.eliminar(z.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== z.id))} /></div></td>
       </tr>)}
     </Table>}
     {form && <ZonaModal edit={form.edit} onClose={() => setForm(null)} onSaved={z => {
@@ -100,8 +101,8 @@ function ZonaModal({ edit, onClose, onSaved }: { edit?: Zona; onClose: () => voi
     <label>Periodo del límite{needsPeriod && <b>*</b>}<select required={needsPeriod} value={f.periodoLimite} onChange={e => set('periodoLimite', e.target.value as PeriodoLimite | '')}>
       <option value="">—</option><option value="DIA">Día</option><option value="SEMANA">Semana</option><option value="MES">Mes</option></select></label>
     <div style={{ gridColumn: '1 / -1' }}>
-      <b style={{ fontSize: 13 }}>Horarios<span> *</span></b>
-      {f.horarios.map((h, i) => <div key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '6px 0', alignItems: 'center' }}>
+      <span className="field-label">Horarios<b>*</b></span>
+      {f.horarios.map((h, i) => <div key={i} className="hours-row">
         <select value={h.diaSemana} onChange={e => setH(i, { diaSemana: e.target.value as Horario['diaSemana'] })}>{DIAS_SEMANA.map(d => <option key={d} value={d}>{dia(d)}</option>)}</select>
         <input type="time" required value={h.horaInicio} onChange={e => setH(i, { horaInicio: e.target.value })} />
         <input type="time" required value={h.horaFin} onChange={e => setH(i, { horaFin: e.target.value })} />
@@ -148,8 +149,8 @@ export function ReservarPage({ notify, onDone }: { notify: Notify; onDone: () =>
         <label>Asistentes (incluyéndote)<b>*</b><input type="number" min={1} max={zona?.capacidadMaxima} required value={f.numeroAsistentes} onChange={e => setF({ ...f, numeroAsistentes: e.target.value })} /></label>
         <label>Motivo<input value={f.motivo} onChange={e => setF({ ...f, motivo: e.target.value })} /></label>
       </div>
-      {zona && <p style={{ fontSize: 13 }}>Capacidad: {zona.capacidadMaxima} · {zona.requiereAprobacion ? 'requiere aprobación del administrador' : 'se confirma automáticamente'}</p>}
-      {f.fecha && f.zonaId && <div style={{ fontSize: 13, margin: '8px 0' }}>
+      {zona && <p className="dialog-desc" style={{ margin: '16px 0 0' }}>Capacidad: {zona.capacidadMaxima} · {zona.requiereAprobacion ? 'requiere aprobación del administrador' : 'se confirma automáticamente'}</p>}
+      {f.fecha && f.zonaId && <div className="info-box">
         {dispError ? <ErrorLine message={dispError} /> : !disp ? 'Consultando disponibilidad…' : <>
           <div><b>Horario ese día:</b> {disp.horarios.length ? disp.horarios.map(h => `${hh(h.horaInicio)}–${hh(h.horaFin)}`).join(', ') : 'la zona no abre'}</div>
           <div><b>Ya reservado:</b> {disp.ocupadas.length ? disp.ocupadas.map(o => `${hh(o.horaInicio)}–${hh(o.horaFin)} (${o.estado})`).join(', ') : 'nada, todo libre'}</div></>}
@@ -184,17 +185,23 @@ export function ReservasPage({ notify, admin }: { notify: Notify; admin: boolean
     anular: ['Mantenimiento de la zona', 'Incumplimiento de normas', 'Solicitud del residente'],
   }
 
+  // Lo que la administración dejó dicho: las condiciones de uso al aprobar o el motivo si se rechazó o canceló.
+  // La columna solo aparece si alguna reserva tiene algo que mostrar.
+  const nota = (r: Reserva) => (r.condicionesUso ? `Condiciones de uso: ${r.condicionesUso}` : r.motivoRechazoCancelacion ? `Motivo: ${r.motivoRechazoCancelacion}` : '')
+  const hayNotas = (items ?? []).some(r => nota(r))
+
   return <>
     <Header kicker="OPERACIONES · ESPACIOS" title={admin ? 'Gestionar reservas' : 'Mis reservas'} />
     <ErrorLine message={error} />
-    {items === null ? <Loading /> : <Table head={['Zona', ...(admin ? ['Solicitante'] : []), 'Fecha', 'Horario', 'Asistentes', 'Estado', 'Acciones']} foot={`${items.length} reservas`}>
+    {items === null ? <Loading /> : <Table head={['Zona', ...(admin ? ['Solicitante'] : []), 'Fecha', 'Horario', 'Asistentes', 'Estado', ...(hayNotas ? ['Observaciones'] : []), 'Acciones']} foot={`${items.length} reservas`}>
       {items.map(r => <tr key={r.id}>
-        <td>{r.zona}</td>{admin && <td>{r.solicitante} · {r.inmueble}</td>}
+        <td>{r.zona}{r.motivo && <small className="preview">{r.motivo}</small>}</td>{admin && <td>{r.solicitante} · {r.inmueble}</td>}
         <td>{dia_fecha(r.fecha)}</td><td>{hh(r.horaInicio)} – {hh(r.horaFin)}</td><td>{r.numeroAsistentes}</td>
-        <td><Badge tone={estadoTone(r.estado)}>{r.estado}</Badge>{r.motivoRechazoCancelacion && <small> · {r.motivoRechazoCancelacion}</small>}</td>
+        <td><Badge tone={estadoTone(r.estado)}>{r.estado}</Badge></td>
+        {hayNotas && <td>{nota(r)}</td>}
         <td><div className="btn-group">
           {admin ? <>
-            {r.estado === 'Pendiente' && <><button onClick={() => { setCond(''); setApprove(r) }}>Aprobar</button><button className="danger" onClick={() => setPrompt({ r, kind: 'rechazar' })}>Rechazar</button></>}
+            {r.estado === 'Pendiente' && <><button onClick={() => { setCond(''); setApprove(r) }}>Aprobar</button><button className="danger" onClick={() => setPrompt({ r, kind: 'rechazar' })}>Rechazar</button><EliminarBtn nombre={`reserva de ${r.zona}`} notify={notify} run={() => api.reservas.eliminar(r.id)} onDone={() => setItems(l => (l ?? []).filter(x => x.id !== r.id))} /></>}
             {r.estado === 'Aprobada' && <button onClick={() => finalizar(r)}>Finalizar</button>}
             {(r.estado === 'Pendiente' || r.estado === 'Aprobada') && <button className="danger" onClick={() => setPrompt({ r, kind: 'anular' })}>Anular</button>}
           </> : r.puedeCancelar && <button className="danger" onClick={() => setPrompt({ r, kind: 'cancelar' })}>Cancelar</button>}
@@ -207,7 +214,10 @@ export function ReservasPage({ notify, admin }: { notify: Notify; admin: boolean
         const updated = await (kind === 'cancelar' ? api.reservas.cancelar(r.id, motivo) : kind === 'rechazar' ? api.reservas.rechazar(r.id, motivo) : api.reservas.anular(r.id, motivo))
         setItems(replaceIn(updated)); setPrompt(null); notify('Reserva actualizada')
       }} />}
-    {approve && <FormModal title={`Aprobar reserva de ${approve.zona}`} submitLabel="Aprobar" onClose={() => setApprove(null)} onSubmit={async () => {
+    {approve && <FormModal title={`Aprobar reserva de ${approve.zona}`} submitLabel="Aprobar" onClose={() => setApprove(null)}
+      description={<>{approve.solicitante} · {approve.inmueble} · {dia_fecha(approve.fecha)}, {hh(approve.horaInicio)}–{hh(approve.horaFin)} · {approve.numeroAsistentes} asistentes.
+        {approve.motivo && <blockquote className="quote">{approve.motivo}</blockquote>}</>}
+      onSubmit={async () => {
       setItems(replaceIn(await api.reservas.aprobar(approve.id, cond.trim() || undefined))); setApprove(null); notify('Reserva aprobada')
     }}>
       <label style={{ gridColumn: '1 / -1' }}>Condiciones de uso (opcional)<textarea value={cond} onChange={e => setCond(e.target.value)} /></label>

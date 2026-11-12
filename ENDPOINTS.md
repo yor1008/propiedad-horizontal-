@@ -488,6 +488,27 @@ Se crean en el momento del evento (no hay retroactivas). El correo electrónico 
 
 ---
 
+## Borrado (`DELETE`) — `@SoloAdministrador`
+
+Todos devuelven **204 sin cuerpo**; 404 si el id no existe; 401 sin token; 403 si no es administrador. El borrado es **físico y solo
+si el registro no tiene historia**: si la tiene, **409** con un `mensaje` que dice qué usar en su lugar. Los listados no cambian.
+
+| Recurso | Ruta | Cuándo responde 409 / 422 (usa en su lugar) |
+|---|---|---|
+| Catálogo | `DELETE /api/catalogos/{id}` | 409 si algún registro lo usa (personas, inmuebles, vehículos, PQRS…) → `desactivar` |
+| Cuenta | `DELETE /api/cuentas/{id}` | **422 si es la cuenta propia** |
+| Vehículo | `DELETE /api/vehiculos/{id}` | — (nada depende de él) |
+| Zona común | `DELETE /api/zonas-comunes/{id}` | 409 si tiene reservas o mantenimientos → `desactivar` (se borra junto con sus horarios) |
+| Parqueadero | `DELETE /api/parqueaderos/{id}` | 422 si sigue asignado a un inmueble (→ `liberar`); 409 si tuvo visitas → `desactivar` |
+| Mantenimiento | `DELETE /api/mantenimientos/{id}` | 409 si ya salió de `Programado` → `cancelar` |
+| Reserva | `DELETE /api/reservas/{id}` | 409 si ya salió de `Pendiente` → `anular` (las que nacen `Aprobada` solo se anulan) |
+| PQRS | `DELETE /api/pqrs/{id}` | 409 si ya fue atendida |
+| Correspondencia | `DELETE /api/correspondencia/{id}` | 409 si ya fue entregada |
+| Pre-registro | `DELETE /api/pre-registros/{id}` | 409 si ya tiene visitas registradas → `cancelar` |
+
+Ya existían: `DELETE /api/personas/{id}` e `DELETE /api/inmuebles/{id}`. Un catálogo sembrado (valores iniciales) que se borre
+reaparece al reiniciar el back; para ocultarlo, desactívalo. Sin `DELETE`: historial de accesos, visitantes y notificaciones.
+
 ## Códigos de error comunes
 
 Todos los errores usan el mismo cuerpo:
