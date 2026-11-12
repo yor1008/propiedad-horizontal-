@@ -205,10 +205,7 @@ amarillo es el de las placas de vehículo.
   «Persona» de Cuentas, porque la API entrega solo el id.
 - **Sin pruebas ni lint.** `next.config.mjs` tiene `ignoreBuildErrors: true`, por lo que `pnpm build` no se detiene por
   errores de tipos. Revísalos con `pnpm exec tsc --noEmit`.
-- **Correos.** El back-end guarda la opción «enviar correo» de cada notificación, pero aún no los envía.
-- **Sobrantes de la plantilla.** `components/ui/button.tsx`, `public/placeholder*` y `tw-animate-css` no se usan.
-- **Ilustración original.** `Gemini_Generated_Image_...jpg` (2 MB) está en la raíz por si se quiere rehacer; la app usa
-  las versiones de `public/`.
+- **Correos.** Los envía el back-end (SMTP o Gmail API) solo si tiene configurado el correo; si no, las notificaciones quedan solo en la app.
 
 ## 🆘 Si algo falla
 
